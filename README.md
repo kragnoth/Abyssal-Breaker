@@ -59,7 +59,7 @@ The levels follow the depth bands in the *Gearwright's Hollow* pack bible. Clear
 |---|---|---|---|
 | 1 | The Shaft | falling debris | none: reach the shaft floor at 60m |
 | 2 | The Gatehouse | clerks' ghosts drift to broken cells and rebuild them; touch one with a core to dispel it | **The Open Gate**: a frame that keeps spawning blocks; break the 8 frame stones, then the gate |
-| 3 | The Tidewell | flooding rows rise and fall and slow the core to 62% | **The Great One**: a slow, huge wyrm in the flooded halls |
+| 3 | The Tidewell | the flood rises and falls; the turning tide pushes cores sideways | **The Great One**: a slow, huge wyrm in the flooded halls |
 | 4 | The Listening Post | sculk seams: every hit adds noise; at 100, *it hears you* (hull damage, cores knocked down) | **Brandt's Bell**: break its 4 supports; striking the bell while it hangs rings it |
 | 5 | Below | tar holds a core for half a second | **Gale's Banked Foundry**: 5 kilns vent fire up at the rig after a warning; kill the kilns, then the heart |
 | 6 | Beyond | lights in the void pull passing cores off course | **Marsh's Lodgers**: six presences that wander and dive through the rig; the last shows itself |
