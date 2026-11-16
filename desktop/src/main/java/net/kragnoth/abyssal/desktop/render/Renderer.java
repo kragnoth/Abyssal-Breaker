@@ -49,7 +49,7 @@ public final class Renderer {
     public boolean crt = true, jitter = true;
     private float time;
 
-    private static final class RowMesh { Mesh mesh; int version = -1; }
+    private static final class RowMesh { Mesh mesh; int version = -1; Row owner; }   // owner: a new run makes new Row objects at the same index
 
     public Renderer() {
         lit = new Shader(LIT_VS, LIT_FS);
@@ -236,7 +236,7 @@ public final class Renderer {
         for (Row row : g.rows.values()) {
             if (row.r < g.R - 4 || row.r > g.R + 24) continue;
             RowMesh rm = rowMeshes.computeIfAbsent(row.r, k -> { RowMesh x = new RowMesh(); x.mesh = new Mesh(false); return x; });
-            if (rm.version != row.version) { buildRow(g, row, rm.mesh); rm.version = row.version; }
+            if (rm.owner != row || rm.version != row.version) { buildRow(g, row, rm.mesh); rm.version = row.version; rm.owner = row; }
             glBindVertexArray(rm.mesh.vao);
             rm.mesh.draw();
         }
