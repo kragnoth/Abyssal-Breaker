@@ -101,6 +101,25 @@ class LogicSimTest {
         assertTrue(g.save.rec.runs == runs, "every run should have been recorded");
     }
 
+    /** Opt-in human-ish difficulty check: ./gradlew :core:test -Dsweep=1 --tests '*skillSweep*' */
+    @Test
+    void skillSweep() {
+        org.junit.jupiter.api.Assumptions.assumeTrue(!System.getProperty("sweep", "").isEmpty());
+        for (float skill : new float[]{0.3f, 0.4f}) for (int lv = 0; lv < Defs.LEVELS.size(); lv++) {
+            Game g = new Game(Fx.NONE, saveOf(new SaveData()), 500 + lv);   // fresh save: no Foundry ranks
+            g.unlockAll = true;
+            int clears = 0; float mins = 0; StringBuilder ends = new StringBuilder();
+            for (int run = 0; run < 10; run++) {
+                assertTrue(g.start(lv));
+                RunResult rr = playOne(g, skill, 25, false);
+                if (rr.won) clears++;
+                mins += rr.minutes;
+                ends.append(rr.won ? "W" : rr.end.replace("died: ", "") + "@" + rr.depth).append(" ");
+            }
+            System.out.printf(Locale.ROOT, "SWEEP skill %.2f  LEVEL %d %-20s cleared %2d/10  avg %.1f min | %s%n", skill, lv + 1, Defs.LEVELS.get(lv).name(), clears, mins / 10, ends);
+        }
+    }
+
     @Test
     void everyLevelPlaysCleanly() {
         int stuck = 0;

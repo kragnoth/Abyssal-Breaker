@@ -12,5 +12,6 @@ dependencies {
 tasks.test {
     useJUnitPlatform()
     systemProperty("simSeed", System.getProperty("simSeed") ?: "1")
+    systemProperty("sweep", System.getProperty("sweep") ?: "")
     testLogging { events("passed", "failed"); showStandardStreams = true }
 }
