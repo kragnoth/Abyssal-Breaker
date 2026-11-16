@@ -1440,7 +1440,8 @@ public final class Game {
                 b.boost = Math.max(1, b.boost - dt * 0.4f);
                 if (perk("magnetar") > 0 && b.vy > 0 && paddleY - b.y < 7) b.vx += (px - b.x) * 0.3f * Math.max(1, magnetLevel()) * dt;
                 b.wet = lerp(b.wet, b.y < waterTop ? 1 : 0, 1 - (float) Math.exp(-dt * 5));   // ease in/out of the flood
-                float sp = curSpeed() * b.boost * (1 - 0.28f * b.wet);   // flooded rows slow the core
+                if (b.wet > 0.01f) b.vx += (float) Math.cos(time * 0.25) * 3.5f * b.wet * dt;   // the tide drags cores sideways as it turns
+                float sp = curSpeed() * b.boost * (1 - 0.1f * b.wet);    // and only slows them a little
                 if (Math.abs(b.vy) < 0.3f * sp) b.vy = (b.vy < 0 ? -1 : 1) * 0.3f * sp;     // never near-horizontal
                 float s = (float) Math.hypot(b.vx, b.vy); if (s == 0) s = 1;
                 b.vx *= sp / s; b.vy *= sp / s;
