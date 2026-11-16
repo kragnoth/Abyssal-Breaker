@@ -38,7 +38,7 @@ Saves go to `~/.local/share/abyssal-breaker/save.json` on Linux (or `$XDG_DATA_H
 | Input | Action |
 |---|---|
 | Mouse / A D / ← → | move the rig |
-| Mouse height / W S | lower the rig on its spring |
+| Scroll wheel / W S | lower or raise the rig on its spring |
 | Click / Space | launch the core (or release held cores) |
 | Right-click / E | release the clamps and drop |
 | C / J / M / P | CRT+dither / vertex jitter / mute / pause |

@@ -187,6 +187,7 @@ public final class Main {
 
     // ================================================================ input
     private void installInput() {
+        glfwSetScrollCallback(window, (win, dx, dy) -> game.nudgeDrop((float) -dy * 0.6f));
         glfwSetCursorPosCallback(window, (win, x, y) -> {
             float sx = scaleX(), sy = scaleY();
             mouseX = x * sx; mouseY = y * sy;

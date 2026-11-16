@@ -163,12 +163,14 @@ public final class Geo {
     }
 
     /** Unit-height coil spring along Y (scale Y to stretch it). */
-    public static FloatList coil(float radius, float tube, int turns, int steps, int radial) {
-        FloatList o = new FloatList(steps * radial * 66);
+    public static FloatList coil(float radius, float tube, int turns, int steps, int radial) { return coil(radius, tube, turns, steps, radial, 1, new FloatList(steps * radial * 66)); }
+    /** Helix of the given length, centred on the origin; the wire stays round however far it is stretched. */
+    public static FloatList coil(float radius, float tube, int turns, int steps, int radial, float length, FloatList o) {
+        o.clear();
         Vector3f[] pts = new Vector3f[steps + 1];
         for (int i = 0; i <= steps; i++) {
             double t = (double) i / steps, a = t * Math.PI * 2 * turns;
-            pts[i] = new Vector3f((float) Math.cos(a) * radius, (float) t - 0.5f, (float) Math.sin(a) * radius);
+            pts[i] = new Vector3f((float) Math.cos(a) * radius, ((float) t - 0.5f) * length, (float) Math.sin(a) * radius);
         }
         for (int i = 0; i < steps; i++) {
             Vector3f p0 = pts[i], p1 = pts[i + 1];

@@ -30,6 +30,7 @@ public final class Renderer {
     private final Textures tex = new Textures();
     private final Texture podAtlas;
     private final Map<String, Integer> podIndex = new HashMap<>();
+    private final FloatList coilBuf = new FloatList(160 * 6 * 66);
     private final int fbo, colorTex, depthRb, postVao;
 
     // static meshes
@@ -70,7 +71,7 @@ public final class Renderer {
         piston = Mesh.of(Geo.cylinder(0.08f, 0.08f, 0.35f, 6));
         wheel = Mesh.of(Geo.box(0.4f, 0.22f, 0.6f));
         winchM = Mesh.of(Geo.cylinder(0.28f, 0.28f, 0.9f, 8));
-        coil = Mesh.of(Geo.coil(0.3f, 0.045f, 7, 200, 5));
+        coil = new Mesh(true);
         beam = Mesh.of(Geo.box(COLS + 1, 0.34f, 1.0f));
         clampBox = Mesh.of(Geo.box(0.7f, 0.9f, 1.3f));
         drillCone = Mesh.of(Geo.cylinder(1.35f, 0, 2.4f, 8));
@@ -276,8 +277,11 @@ public final class Renderer {
         // trolley, winch and coil spring
         for (int s = -1; s <= 1; s += 2) litDraw(wheel, tex.metal, model.identity().translate(g.px + s * 0.6f, g.rigY + 0.86f, 0), 2.1f);
         litDraw(winchM, tex.metal, model.identity().translate(g.px, g.rigY + 0.62f, 0).rotateZ((float) Math.PI / 2), 2.1f);
-        float top = g.rigY + 0.45f, bot = g.paddleY + 0.75f, len = Math.max(0.15f, top - bot);
-        litDraw(coil, tex.metal, model.identity().translate(g.px, (top + bot) / 2, 0).scale(1, len, 1), 2.1f);
+        float top = g.rigY + 0.45f, bot = g.paddleY + 0.4f, len = top - bot;             // winch underside to chassis top
+        if (len > 0.04f) {
+            coil.upload(Geo.coil(0.26f, 0.05f, 8, 160, 6, len, coilBuf));
+            litDraw(coil, tex.metal, model.identity().translate(g.px, (top + bot) / 2, 0), 2.1f);
+        }
         // bridge
         litDraw(beam, tex.girder, model.identity().translate(0, g.rigY + 0.86f, 0), 2.2f, COLS, 1, 0, 0, 0, 0, 0);
         for (int s = -1; s <= 1; s += 2) litDraw(clampBox, tex.metal, model.identity().translate(s * (HALF + 0.3f), g.rigY + 0.8f, 0), 2.1f);

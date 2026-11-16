@@ -25,7 +25,7 @@ public final class Entities {
         public float x, y, vx, vy, boost = 1, holdX, holdT;
         public boolean docked, held, lost;
         public int pierceLeft, lanceLeft = 10, slam;
-        public float lastSplit = -9, stuck;
+        public float lastSplit = -9, stuck, wet;
         public boolean frag;               // fission-born core that detonates on its first hit (FRAG CORES)
         public final Map<String, Integer> up = new HashMap<>();
         public float[] col = {1, 0.55f, 0.2f};

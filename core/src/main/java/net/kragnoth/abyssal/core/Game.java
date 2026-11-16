@@ -1385,6 +1385,8 @@ public final class Game {
     public void pointer(float fx, float fy) {
         pxTarget = (fx - 0.5f) * POINTER_SPAN_X; usingMouse = true; mouseFy = fy;
     }
+    /** Scroll wheel: + lowers the rig on its spring, - winches it back up. */
+    public void nudgeDrop(float d) { if (state == State.PLAY) dropTarget = clamp(dropTarget + d, 0, reach()); }
     public void key(String name, boolean down) { if (down) keys.add(name); else keys.remove(name); }
 
     // ================================================================ frame
@@ -1411,7 +1413,6 @@ public final class Game {
         // ---- rig: vertical spring
         if (keys.contains("up")) { dropTarget -= 6 * dt; usingMouse = false; }
         if (keys.contains("down")) { dropTarget += 6 * dt; usingMouse = false; }
-        if (usingMouse && mouseFy >= 0) dropTarget = rigY - ((rigY - CAM_TARGET_BELOW_RIG) - (mouseFy - 0.5f) * 2 * CAM_HALF_HEIGHT) - 0.3f;
         dropTarget = clamp(dropTarget, 0, reach());
         float k = springK(), cDamp = 2 * (float) Math.sqrt(k) * 0.45f;   // underdamped: it bobs
         dropV += ((dropTarget - drop) * k - dropV * cDamp) * dt;
@@ -1438,7 +1439,8 @@ public final class Game {
             } else {
                 b.boost = Math.max(1, b.boost - dt * 0.4f);
                 if (perk("magnetar") > 0 && b.vy > 0 && paddleY - b.y < 7) b.vx += (px - b.x) * 0.3f * Math.max(1, magnetLevel()) * dt;
-                float sp = curSpeed() * b.boost * (b.y < waterTop ? 0.62f : 1);   // flooded rows slow the core
+                b.wet = lerp(b.wet, b.y < waterTop ? 1 : 0, 1 - (float) Math.exp(-dt * 5));   // ease in/out of the flood
+                float sp = curSpeed() * b.boost * (1 - 0.28f * b.wet);   // flooded rows slow the core
                 if (Math.abs(b.vy) < 0.3f * sp) b.vy = (b.vy < 0 ? -1 : 1) * 0.3f * sp;     // never near-horizontal
                 float s = (float) Math.hypot(b.vx, b.vy); if (s == 0) s = 1;
                 b.vx *= sp / s; b.vy *= sp / s;
