@@ -69,6 +69,7 @@ public final class Screens {
             case TITLE -> title();
             case LEVELS -> levels();
             case JUNCTION -> junction();
+            case CHEST -> chest();
             case SHOP -> shop();
             case FOUNDRY -> foundry();
             case OVER -> over();
@@ -134,6 +135,17 @@ public final class Screens {
             u.rect(bx2, by2 + 3, 160, 9, 0x120c08, 1); u.frame(bx2, by2 + 3, 160, 9, 1.5f, BORDER); u.rect(bx2 + 1.5f, by2 + 4.5f, 157 * frac, 6, RED, 1);
             u.text(note, bx2 + 166, by2 + 1, 13, DIM);
         }
+        if (g.gadget != null) {
+            Gadget G = Defs.gadget(g.gadget); boolean ready = g.gadgetCd <= 0;
+            float gx = 10, gy = VH - 30;
+            u.text(G.name() + " " + g.gadgetLv + (ready ? "  [Q] READY" : ""), gx, gy - 14, 12, ready ? G.color() : DIM);
+            u.rect(gx, gy, 120, 8, 0x120c08, 1); u.frame(gx, gy, 120, 8, 1.5f, BORDER);
+            u.rect(gx + 1.5f, gy + 1.5f, 117 * (1 - g.gadgetCd / g.gadgetMaxCd()), 5, ready ? G.color() : 0x6a5a48, 1);
+        }
+        float xf = Math.min(1, g.xp / g.xpNext());
+        u.rect(0, 0, VW, 4, 0x120c08, 1); u.rect(0, 0, VW * xf, 4, 0xc86aff, 1);
+        u.textCentered("LV " + g.xpLevel + (g.perks.isEmpty() ? "" : "  ·  " + g.perks.size() + " perks"), VW / 2, 7, 11, 0xc86aff);
+        if (g.overdriveT > 0) u.textCentered("OVERDRIVE " + (int) Math.ceil(g.overdriveT) + "s", VW / 2, 52, 16, 0xff3a3a);
         if (g.combo >= 5) u.textCentered(g.combo + " CHAIN", VW / 2, 30, 20, 0xffb347);
         if (msgT > 0) {
             float a = Math.min(1, msgT / 0.25f);
@@ -153,6 +165,7 @@ public final class Screens {
         parts.add(new Object[]{"CORES " + g.balls.size() + "/" + MAX_BALLS, DIM});
         if (g.wideT > 0) parts.add(new Object[]{" W" + (int) Math.ceil(g.wideT) + "s", GRN});
         if (g.magT > 0) parts.add(new Object[]{" U" + (int) Math.ceil(g.magT) + "s", 0xc86aff});
+        if (g.panelT > 0) parts.add(new Object[]{" L" + (int) Math.ceil(g.panelT) + "s", 0x6affb0});
         if (g.catchT > 0) parts.add(new Object[]{" C" + (int) Math.ceil(g.catchT) + "s", 0x7affd4});
         else if (g.lv("catch") > 0) parts.add(new Object[]{" GRAPPLE", 0x7affd4});
         float w = 0; for (Object[] p : parts) w += u.width((String) p[0], 13);
@@ -235,6 +248,48 @@ public final class Screens {
         para("[G] PUSH ON - keep the cargo, multiplier +0.5. Lose the rig, lose the hold.", px + 20, y + 4, pw - 40, 12, TXT, true);
         button("BANK & PATCH [B]", VW / 2 - 165, py + ph - 36, 160, 24, 13, ORANGE, true, () -> g.closeJunction(true));
         button("PUSH ON [G]", VW / 2 + 5, py + ph - 36, 160, 24, 13, ORANGE, true, () -> g.closeJunction(false));
+    }
+
+    // ================================================================ jackpot chest
+    private void chest() {
+        dim();
+        int tier = g.chestTier;
+        String title = tier == 0 ? "LEVEL " + g.xpLevel + " - CHOOSE A PERK" : tier == 5 ? "JACKPOT!" : tier == 3 ? "GILDED CHEST" : "CHEST";
+        int tc = tier == 0 ? 0xc86aff : tier == 5 ? 0xffe066 : tier == 3 ? 0xffc43c : 0xffb347;
+        float pw = 520, ph = 268, px = VW / 2 - pw / 2, py = VH / 2 - ph / 2;
+        panel(px, py, pw, ph);
+        if (tier == 5) { float f = 0.5f + 0.5f * (float) Math.sin(time * 10); u.frame(px - 3, py - 3, pw + 6, ph + 6, 2, f > 0.5f ? 0xffe066 : 0xff7a2a); }
+        u.textCentered(title, VW / 2, py + 8, 26, tc);
+        String sub = tier == 0 ? "combo perks unlock as your build grows" : g.chestPicks + (g.chestPicks == 1 ? " pick left" : " picks left");
+        if (g.chestBonus > 0) sub += "   ·   +" + g.chestBonus + " cargo";
+        u.textCentered(sub, VW / 2, py + 38, 12, TXT);
+        float cw = 160, ch = 168, cx = VW / 2 - (3 * cw + 2 * 8) / 2, cy = py + 58;
+        boolean spinning = g.chestT < 0.6f;
+        for (int i = 0; i < 3 && i < g.chestChoices.size(); i++) {
+            float x = cx + i * (cw + 8);
+            u.rect(x, cy, cw, ch, 0x120c08, 1);
+            if (spinning) {                                                         // the reel
+                String[] reel = {"FISSION", "OVERDRIVE", "STRENGTH", "AUGER", "BLAST CORE", "RECALL", "ARC CORE", "SEISMIC CHARGE", "WIDE BUMPER"};
+                int k = (int) (time * 22 + i * 3) % reel.length;
+                u.frame(x, cy, cw, ch, 1.5f, 0x4a3c2c);
+                u.textCentered(reel[k], x + cw / 2, cy + ch / 2 - 18, 13, 0x7a6a50);
+                u.textCentered(reel[(k + 1) % reel.length], x + cw / 2, cy + ch / 2, 14, 0xc9a14a);
+                u.textCentered(reel[(k + 2) % reel.length], x + cw / 2, cy + ch / 2 + 18, 13, 0x7a6a50);
+                continue;
+            }
+            Game.ChestInfo ci = g.chestInfo(g.chestChoices.get(i));
+            boolean evo = ci.tag().startsWith("EVOLVES") || ci.tag().startsWith("COMBO");
+            int ec = ci.tag().startsWith("COMBO") ? 0xff7ae0 : 0x7affd4;
+            u.frame(x, cy, cw, ch, evo ? 2.5f : 1.5f, evo ? ec : ci.color());
+            u.textCentered("[" + (i + 1) + "]", x + cw / 2, cy + 6, 11, DIM);
+            for (String tl : u.wrap(ci.tag(), 10, cw - 10)) { u.textCentered(tl, x + cw / 2, cy + 22, 10, evo ? ec : DIM); break; }
+            float ty = cy + 40;
+            for (String line : u.wrap(ci.name(), 15, cw - 12)) { u.textCentered(line, x + cw / 2, ty, 15, ci.color()); ty += 16; }
+            para(ci.desc(), x + 8, ty + 8, cw - 16, 11, 0xb9a37e, true);
+            final int idx = i;
+            button("TAKE", x + cw / 2 - 40, cy + ch - 30, 80, 22, 13, ORANGE, true, () -> g.pickChest(idx));
+        }
+        u.textCentered(spinning ? "…" : "click a card or press 1-3", VW / 2, py + ph - 22, 11, DIM);
     }
 
     // ================================================================ workshop

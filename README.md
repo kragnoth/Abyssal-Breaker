@@ -28,7 +28,7 @@ The fat jar bundles LWJGL natives for Linux, Windows and macOS, so the same jar 
 | `--level N` | start level N (1-7, 0 = Classic); with `--demo` the bot plays it |
 | `--unlock-all` | open every level |
 | `--boss 0..3` | jump straight to a wyrm in its biome (with `--level`, to that level's boss) |
-| `--screen levels\|shop\|junction\|foundry\|over\|victory` | open a menu directly |
+| `--screen chest\|levels\|shop\|junction\|foundry\|over\|victory` | open a menu directly |
 | `--shot FILE --shot-after SECONDS` | save a PNG of the window, then exit |
 
 Saves go to `~/.local/share/abyssal-breaker/save.json` on Linux (or `$XDG_DATA_HOME`), `%APPDATA%\AbyssalBreaker` on Windows, and `~/Library/Application Support/AbyssalBreaker` on macOS.
@@ -47,6 +47,8 @@ Saves go to `~/.local/share/abyssal-breaker/save.json` on Linux (or `$XDG_DATA_H
 | K / P / 1-3 | tarot: keep / pass / replace |
 | Space / Enter (title), 1-7, C, Esc | level select: open, pick a level, Classic, back |
 | L | level select (game-over screen) |
+| Q / Left Shift / MMB | fire gadget |
+| 1-3 | take a chest or level-up card |
 | F | Foundry (title and game-over screens) |
 
 ## Levels
@@ -67,6 +69,43 @@ Each level has its own block palette, fog and lighting, and adds new block types
 
 ![level select](docs/level-select.png)
 ![bosses](docs/level-bosses.png)
+
+## Chests, gadgets and rig levels
+
+**Jackpot chests**, Vampire Survivors style. A chest is a gold-banded block buried in the rock. Chests also drop when a boss's armour breaks and when a Classic wyrm dies. If you go 12s without breaking anything, or spend 70s in one zone, the shaft *offers* a pity chest. A chest homes in on the rig and can't be missed. Opening one spins a reel: a plain chest gives **1 pick**, a gilded chest gives **3 picks** plus cargo, and a jackpot gives **5 picks** plus a pile of cargo. Each pick is one of three cards:
+- a core upgrade for every core (a card is flagged when it would **complete an evolution**)
+- a free workshop rank
+- a gadget
+- a hull patch or a cargo boost
+
+**Gadgets** take one slot and are fired with **Q**, **Left Shift** or the **middle mouse button**. Taking the same gadget again levels it up (max 3), which shortens the cooldown and makes it stronger.
+
+| Gadget | Effect |
+|---|---|
+| Seismic Charge | blasts open the rock face below the rig |
+| Overdrive | cores smash through anything for a few seconds |
+| Recall | snaps every core back onto the bumper to re-aim |
+| Auger | fires 1-3 mega drills |
+
+**Experience.** Broken blocks, ore and boss armour fill the purple bar across the top of the screen. Each **rig level** offers three perks. Basic perks are always available: Momentum, Chain Link, Hardened, Fortune, Scholar. **Combo perks** appear only once your build has what they need:
+
+| Combo perk | Needs | Effect |
+|---|---|---|
+| Shrapnel | Blast | blasts crack 2 more blocks |
+| Frag Cores | Fission + Blast | fission children detonate on first hit |
+| Conductor | Arc + gadget | arc strikes recharge the gadget |
+| Lightning Rod | Drill-Point + Arc | plowing dirt arcs to a neighbour |
+| Kinetic Battery / Scrap Feed | gadget | bumper hits / ore pickups recharge it |
+| Magnetar | magnet | falling cores bend toward the bumper |
+| Lodestar | Prospector + magnet | gold ore homes in on you |
+| Prism | panels | a laser crossing a core splits it |
+| Rig Link | panels | Wall Rigs last twice as long, lasers fire faster |
+| Slingshot | Catch / Recall | held cores launch faster and pierce 3 |
+| Overclock | Overdrive | Overdrive also splits every core |
+| Aftershock | Seismic Charge | the charge goes off twice |
+| Feeder Drill | Drill Bay / Auger | mega drills leave a pod |
+
+**Wall Rigs pod (L).** Bolts a laser panel and a magnet panel to the walls for about 14 seconds.
 
 ## What's in it
 

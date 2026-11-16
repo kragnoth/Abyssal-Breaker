@@ -31,7 +31,7 @@ public final class Textures {
             byte[] atlas = new byte[S * ATLAS_COLS * S * ATLAS_ROWS * 4];
             int aw = S * ATLAS_COLS;
             for (int t = 1; t <= ATLAS_COLS; t++) for (int cr = 0; cr < 3; cr++) {
-                int[] px = block(t, cr, pal != null ? pal[t] : null);
+                int[] px = block(t, cr, pal != null && t != Defs.CHEST ? pal[t] : null);
                 for (int y = 0; y < S; y++) for (int x = 0; x < S; x++) {
                     int o = ((cr * S + y) * aw + (t - 1) * S + x) * 4, p = (y * S + x) * 4;
                     for (int i = 0; i < 4; i++) atlas[o + i] = (byte) px[p + i];
@@ -86,6 +86,11 @@ public final class Textures {
             if (type == Defs.BASALT && (x + y * 2) % 7 == 0) { r *= 1.35; g *= 1.35; b *= 1.35; }
             if (type == Defs.TAR && Mth.hash(x * 3, y * 9 + 1, SEED) > 0.93) { r += 40; g += 34; b += 30; }          // wet sheen
             if (type == Defs.MIRROR && (x - y + 32) % 5 == 0) { r = 235; g = 245; b = 255; }                         // glass streaks
+            if (type == Defs.CHEST) {                                                                                  // planks, brass bands, lock
+                if (y % 5 == 0) { r *= 0.6; g *= 0.6; b *= 0.6; }
+                if (x == 3 || x == 12 || y == 7 || y == 8) { r = 214; g = 164; b = 58; }
+                if (x >= 6 && x <= 9 && y >= 6 && y <= 10) { r = 255; g = 214; b = 90; if (x == 7 && y == 9) { r = 40; g = 26; b = 10; } }
+            }
             if (ore != null && Mth.vnoise(x * 0.9 + ts, y * 0.9 + 5, SEED) > 0.7) { r = ore[0] * 0.75; g = ore[1] * 0.75; b = ore[2] * 0.75; a = 0; }
             if (x == 0 || y == 0 || x == S - 1 || y == S - 1) { r *= 0.42; g *= 0.42; b *= 0.42; }
             else if (y == 1 || x == 1) { r *= 1.18; g *= 1.18; b *= 1.18; }

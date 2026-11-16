@@ -15,7 +15,7 @@ import static net.kragnoth.abyssal.core.Mth.*;
  * methods, and read the public fields to draw. Nothing in here touches OpenGL or audio.
  */
 public final class Game {
-    public enum State { TITLE, LEVELS, PLAY, PAUSED, JUNCTION, SHOP, FOUNDRY, OVER, VICTORY }
+    public enum State { TITLE, LEVELS, PLAY, PAUSED, JUNCTION, SHOP, FOUNDRY, OVER, VICTORY, CHEST }
 
     public final Fx fx;
     private final SaveStore store;
@@ -77,6 +77,19 @@ public final class Game {
     public final List<VoidLight> voidLights = new ArrayList<>();
     private float ghostT = 5;
     private State levelsReturn = State.TITLE;
+    // ---- jackpot chests & gadget
+    public final List<String> chestChoices = new ArrayList<>();
+    public int chestPicks, chestTier, chestQueue;
+    public long chestBonus;
+    public float chestT;
+    private float pityCd, zoneT;
+    public String gadget;
+    public int gadgetLv;
+    public float gadgetCd, overdriveT, panelT;
+    // ---- experience & perks (per run)
+    public float xp;
+    public int xpLevel, levelQueue;
+    public final Map<String, Integer> perks = new HashMap<>();
     public LastRun lastRun;
     public Bot bot;
 
@@ -106,7 +119,7 @@ public final class Game {
     private void later(Runnable fn, float sec) { timers.add(new Timer(fn, new float[]{sec})); }
 
     public float curSpeed() { return (float) (Math.min(10.5f + R * 0.03f + (lvl != null ? lvl.speedBonus() : 0), 18f) * (1 - 0.05 * mr("gov")) * Math.max(0.6, 1 + A("speed"))); }
-    public int maxHull() { return (int) Math.max(30, Math.round((100 + 20 * lv("armor") + 15 * mr("hull") + A("hull")) * (1 + A("hullPct")))); }
+    public int maxHull() { return (int) Math.max(30, Math.round((100 + 20 * perk("hardened") + 20 * lv("armor") + 15 * mr("hull") + A("hull")) * (1 + A("hullPct")))); }
     public float basePadW() { return (float) Math.max(1.6, PW + 0.4 * lv("width") + 0.25 * mr("span") + A("padW")); }
     public float pressureMax() { return (float) Math.max(8, PRESSURE_TIME + 8 * lv("clamps") + A("clamp")); }
     public float reach() { return Math.min(4.6f, 1 + 0.9f * mr("winch")); }
@@ -118,6 +131,8 @@ public final class Game {
     public boolean levelUnlocked(int i) { return unlockAll || i <= 0 || (save.rec.cleared & (1 << (i - 1))) != 0; }
     public boolean levelCleared(int i) { return (save.rec.cleared & (1 << i)) != 0; }
     private boolean hz(LevelHazard h) { return lvl != null && lvl.hazard() == h; }
+    public int perk(String k) { return perks.getOrDefault(k, 0); }
+    public int panelLv(String kind) { return Math.max(lv(kind), panelT > 0 ? 1 : 0); }
     public int magnetLevel() { return (int) Math.max(0, lv("magnet") + mr("lode") + A("magnet") + (magT > 0 ? 3 : 0)); }
 
     public long shopCost(ShopItem it) { return Math.round(it.base() * Math.pow(it.mul(), lv(it.key())) * Math.max(0.5, 1 + A("shopCost"))); }
@@ -196,6 +211,7 @@ public final class Game {
                 if (hz(LevelHazard.NOISE) && r > firstRock + 1 && ty != GOLD && ty != AETHER && fbm(c * 0.5 + 300, r * 0.5 + 11, seed) > 0.62) ty = SCULK;
                 if (hz(LevelHazard.TAR) && r > firstRock + 1 && ty != GOLD && fbm(c * 0.55 + 400, r * 0.4 + 5, seed) > 0.64) ty = TAR;
                 if (hz(LevelHazard.MIRRORS) && r > firstRock + 2 && hash(c * 11 + 3, r * 5 + 1, seed) < 0.07) ty = MIRROR;
+                if (r > firstRock + 4 && hash(c * 13 + 7, r * 17 + 3, seed) < CHEST_CELL) ty = CHEST;
                 row.t[c] = ty; row.hp[c] = HP[ty]; row.maxHp[c] = HP[ty]; row.solid0++;
             }
         }
@@ -233,7 +249,7 @@ public final class Game {
         fx.debris(x, y, DEBRIS[ty], reward ? 7 : 4);
         fx.burst(x, y, reward ? 10 : 4, 0.9f, 0.55f, 0.25f, 5, 0.4f);
         if (!reward) return;
-        score += Math.round(SCORE[ty] * (1 + combo * 0.1)); stats.blocks++; stats.lastProg = stats.t;
+        score += Math.round(SCORE[ty] * (1 + combo * 0.1)); stats.blocks++; stats.lastProg = stats.t; gainXp(SCORE[ty] * 0.2f);
         Ball b = src instanceof Ball bb ? bb : null;
         int pro = b != null ? b.up("gold") : 0;
         if (b != null && b.evo("midas") && rnd() < 0.4) spawnLoot(x, y, "gold", null);
@@ -241,8 +257,9 @@ public final class Game {
         if (ty == AETHER) for (int i = 0; i <= (pro >> 1); i++) spawnLoot(x, y, "aether", null);
         if (ty != GOLD && ty != AETHER && pro > 0 && rnd() < 0.06 * pro) spawnLoot(x, y, "gold", null);
         double pod = ("drill".equals(src) || "laser".equals(src)) ? 0.006 : ty == AETHER ? 0.25 : ty == GOLD ? 0.05 : ty == GAS ? 0.1 : 0.014;
-        if (rnd() < pod * Math.max(0.2, 1 + 0.25 * lv("luck") + 0.1 * mr("luck") + A("pods"))) spawnLoot(x, y, "pu", rollPU());
+        if (rnd() < pod * Math.max(0.2, 1 + 0.25 * lv("luck") + 0.1 * mr("luck") + 0.2 * perk("fortune") + A("pods"))) spawnLoot(x, y, "pu", rollPU());
         if (ty == GAS) explode(r, c);
+        if (ty == CHEST) { spawnLoot(x, y, "chest", null); msg("CHEST!", 0xffd84a, 0.8f); fx.sound(Fx.Sfx.ORE_HI, 0); }
     }
     private void explode(int r0, int c0) {
         float x = cellX(c0), y = -r0;
@@ -293,6 +310,7 @@ public final class Game {
     }
     public void launch() {
         for (Ball b : balls) if (b.docked) {
+            if (b.held && perk("slingshot") > 0) { b.boost = Math.max(b.boost, 1.4f); b.pierceLeft += 3; }
             float a = minAngle(b.held ? clamp(b.holdX / (padW / 2), -1, 1) * 1.05f : rnd(-0.45f, 0.45f)), s = curSpeed() * b.boost;
             b.docked = false; b.held = false; b.holdX = 0;
             b.vx = s * (float) Math.sin(a); b.vy = -s * (float) Math.cos(a);
@@ -323,7 +341,7 @@ public final class Game {
         float a = rnd(0.3f, 0.5f) * (rnd() < 0.5 ? -1 : 1), c = (float) Math.cos(a), s = (float) Math.sin(a);
         Ball nb = addBall(b.x, b.y, b.vx * c - b.vy * s, b.vx * s + b.vy * c, false, b.up);
         if (nb == null) return;
-        nb.boost = b.boost; nb.pierceLeft = b.pierceLeft; nb.lastSplit = b.lastSplit = time;
+        nb.boost = b.boost; nb.pierceLeft = b.pierceLeft; nb.lastSplit = b.lastSplit = time; nb.frag = perk("frag") > 0;
         fx.burst(b.x, b.y, 14, 1, 0.5f, 0.15f, 5, 0.35f); fx.sound(Fx.Sfx.POD, 0);
     }
 
@@ -345,9 +363,9 @@ public final class Game {
             b.vx = s * (float) Math.sin(a); b.vy = -s * (float) Math.cos(a); b.y = pBot - BR; b.pierceLeft = b.up("pierce"); b.lanceLeft = 10;
             if (catching()) {
                 b.docked = true; b.held = true; b.holdX = clamp(b.x - px, -padW / 2, padW / 2); b.holdT = 0;
-                fx.sound(Fx.Sfx.CATCH, 0); combo = 0; return;
+                fx.sound(Fx.Sfx.CATCH, 0); combo = perk("chainlink") > 0 ? combo / 2 : 0; gadgetCd -= 0.6f * perk("kinetic"); return;
             }
-            combo = 0; fx.sound(Fx.Sfx.PADDLE, 0); fx.burst(b.x, pBot, 8, 1, 0.8f, 0.4f, 4, 0.25f); rigKick = 0.12f; dropV -= 2.5f;
+            combo = perk("chainlink") > 0 ? combo / 2 : 0; gadgetCd -= 0.6f * perk("kinetic"); fx.sound(Fx.Sfx.PADDLE, 0); fx.burst(b.x, pBot, 8, 1, 0.8f, 0.4f, 4, 0.25f); rigKick = 0.12f; dropV -= 2.5f;
             return;
         }
         if (b.y - BR > rigY + 0.7f) { b.lost = true; return; }
@@ -362,9 +380,15 @@ public final class Game {
             float cx = cellX(c), cy = -r, nx = clamp(b.x, cx - 0.5f, cx + 0.5f), ny = clamp(b.y, cy - 0.5f, cy + 0.5f);
             float dx = b.x - nx, dy = b.y - ny, d2 = dx * dx + dy * dy;
             if (d2 >= BR * BR) continue;
+            if (overdriveT > 0) {                                      // overdrive: nothing stops the core
+                combo++; bestCombo = Math.max(bestCombo, combo); fx.sound(Fx.Sfx.HIT_HARD, combo);
+                damageBlock(r, c, 99, true, b); fissionCheck(b); continue;
+            }
             if (PIERCE[t]) {                                           // dirt: plow straight through
                 combo++; bestCombo = Math.max(bestCombo, combo); fx.sound(Fx.Sfx.HIT, combo);
-                destroyBlock(r, c, true, b); fissionCheck(b); continue;
+                destroyBlock(r, c, true, b); fissionCheck(b);
+                if (perk("lightning") > 0 && b.up("pierce") > 0) arcFrom(b, r, c);
+                continue;
             }
             float d = (float) Math.sqrt(d2), pen = BR - d;
             if (pen > bpen) { bpen = pen; br = r; bc = c; bnx = nx; bny = ny; bdx = dx; bdy = dy; bd = d; }
@@ -373,12 +397,13 @@ public final class Game {
         int ty = cell(br, bc);
         float ovx = b.vx, ovy = b.vy;
         if (hz(LevelHazard.NOISE)) noise += ty == SCULK ? 14 : 2;
-        int dmg = 1 + b.up("str") + (rnd() < 0.1 * mr("might") ? 1 : 0) + (b.evo("lance") ? 2 : 0) + (b.slam > 0 ? 2 : 0);
+        int dmg = 1 + b.up("str") + Math.min(3, perk("momentum") * (combo / 8)) + (rnd() < 0.1 * mr("might") ? 1 : 0) + (b.evo("lance") ? 2 : 0) + (b.slam > 0 ? 2 : 0);
         if (b.slam > 0) { b.slam = 0; fx.burst(b.x, b.y, 24, 1, 0.8f, 0.4f, 7, 0.4f); shake = Math.max(shake, 0.25f); }
         combo++; bestCombo = Math.max(bestCombo, combo);
         fx.sound(ty == BASALT ? Fx.Sfx.HIT_HARD : Fx.Sfx.HIT, combo);
         boolean killed = damageBlock(br, bc, dmg, true, b);
         if (killed) fissionCheck(b);
+        if (b.frag) { b.frag = false; smallBlast(br, bc, 1.6f, 2, b); }
         coreFx(b, br, bc);
         if (killed && (b.pierceLeft > 0 || (b.evo("lance") && b.lanceLeft > 0))) {   // drill-point / lance
             if (b.pierceLeft > 0) b.pierceLeft--; else b.lanceLeft--;
@@ -416,8 +441,13 @@ public final class Game {
             fx.burst(x0, y0, 10 + bl * 6, 1, 0.6f, 0.15f, 4 + rad * 2, 0.35f);
             if (bl >= 3) { shake = Math.max(shake, 0.12f + bl * 0.03f); fx.flash(x0, y0, 1.6f, 0.9f, 0.3f, 3 + rad * 1.5f, 0.15f); }
             fx.sound(Fx.Sfx.CRUNCH, 0);
+            for (int i = 0; i < 2 * perk("shrapnel"); i++) {                         // shards
+                int r = r0 + rng.nextInt(7) - 3, c = c0 + rng.nextInt(7) - 3;
+                if (cell(r, c) != 0) { damageBlock(r, c, 1, true, b); fx.spark(cellX(c), -r, 0.8f, 0, 0, 1, 0.6f, 0.2f, 0.25f); }
+            }
         }
         if (arcN > 0) {
+            gadgetCd -= 0.4f * perk("conductor") * arcN;
             List<int[]> cand = new ArrayList<>();
             for (int r = r0 - 3; r <= r0 + 3; r++) for (int c = Math.max(0, c0 - 3); c <= Math.min(COLS - 1, c0 + 3); c++)
                 if (cell(r, c) != 0 && !(r == r0 && c == c0)) cand.add(new int[]{r, c});
@@ -445,8 +475,9 @@ public final class Game {
     }
     private void collect(Loot l) {
         if ("pu".equals(l.kind)) { applyPU(l.pu); fx.burst(l.x, paddleY - 0.5f, 16, 1, 0.7f, 0.4f, 4, 0.4f); return; }
+        if ("chest".equals(l.kind)) { fx.burst(l.x, paddleY - 0.5f, 40, 1, 0.85f, 0.3f, 7, 0.6f); openChest(); return; }
         double v = ("gold".equals(l.kind) ? 10 : 50) * (1 + 0.1 * mr("assay")) * Math.max(0.1, 1 + A("ore"));
-        cargo += Math.round(v * cargoMult); stats.ore += v;
+        cargo += Math.round(v * cargoMult); stats.ore += v; gainXp("aether".equals(l.kind) ? 2 : 0.5f); gadgetCd -= 0.3f * perk("scrapfeed");
         fx.sound("aether".equals(l.kind) ? Fx.Sfx.ORE_HI : Fx.Sfx.ORE, 0);
         boolean ae = "aether".equals(l.kind);
         fx.burst(l.x, paddleY - 0.5f, 10, ae ? 0.4f : 1, ae ? 0.9f : 0.8f, ae ? 1 : 0.3f, 3, 0.3f);
@@ -473,6 +504,7 @@ public final class Game {
             case "magnet" -> { magT = Math.min(magT + 15 * dur, 50); msg("MAGNET SURGE", P.color(), 0.8f); }
             case "catch" -> { catchT = Math.min(catchT + 20 * dur, 60); msg("CATCH - CLICK TO RELEASE", P.color(), 1); }
             case "hull" -> { hull = Math.min(maxHull(), hull + 20); msg("HULL PATCH +20", P.color(), 0.8f); }
+            case "rigs" -> { boolean was = panelT > 0; panelT = Math.min(panelT + 14 * dur * (perk("riglink") > 0 ? 2 : 1), 45); if (!was) syncPanels(); msg("WALL RIGS - LASER & MAGNET", P.color(), 0.9f); }
             default -> {}
         }
     }
@@ -496,6 +528,7 @@ public final class Game {
             if (rnd() < 0.9) fx.burst(cellX(d.c), d.y - 1.1f, 3, 1, 0.6f, 0.2f, 7, 0.35f);
             if (d.left <= 0 || d.y < -(R + 34)) {
                 it.remove();
+                if (perk("feeder") > 0) spawnLoot(cellX(d.c), d.y, "pu", rollPU());
                 fx.burst(cellX(d.c), d.y, 40, 1, 0.6f, 0.2f, 9, 0.6f); fx.debris(cellX(d.c), d.y, 0x6a6058, 12); fx.sound(Fx.Sfx.BOOM, 0);
             }
         }
@@ -505,7 +538,7 @@ public final class Game {
     public void syncPanels() {
         panels.clear();
         for (String kind : List.of("laser", "skimmer")) {
-            int n = lv(kind) >= 2 ? 2 : lv(kind), home = kind.equals("laser") ? -1 : 1;
+            int n = panelLv(kind) >= 2 ? 2 : panelLv(kind), home = kind.equals("laser") ? -1 : 1;
             for (int i = 0; i < n; i++) {
                 Panel p = new Panel(kind, i == 0 ? home : -home);
                 p.y = rigY - rnd(3, 12); p.ty = rigY - rnd(3, 12); p.wait = rnd(0, 1); p.cd = rnd(0.5f, 2);
@@ -515,7 +548,7 @@ public final class Game {
     }
     private void updatePanels(float dt) {
         for (Panel p : panels) {
-            float x = p.side * (HALF + 0.3f); int L = lv(p.kind);
+            float x = p.side * (HALF + 0.3f); int L = panelLv(p.kind);
             if (p.wait > 0) p.wait -= dt;
             else {
                 float d = p.ty - p.y, step = 3.5f * dt;
@@ -536,7 +569,7 @@ public final class Game {
                     if (d < 0.6f) { collect(l); stats.skimmed++; it.remove(); }
                 }
             } else {
-                p.cd -= dt * (L >= 3 ? 1.6f : 1);
+                p.cd -= dt * (L >= 3 ? 1.6f : 1) * (perk("riglink") > 0 ? 1.3f : 1);
                 if (p.cd <= 0) {
                     p.cd = 2.4f; stats.laserShots++;
                     int row = Math.round(-p.y), maxHits = 3 + L, dmg = L >= 3 ? 2 : 1, hits = 0;
@@ -550,6 +583,8 @@ public final class Game {
                     float y = -row; p.beamT = 0.18f; p.beamY = y; p.beamX0 = x; p.beamX1 = endX;
                     for (int s = 0; s < 16; s++) fx.spark(lerp(x, endX, rnd()), y + rnd(-0.1f, 0.1f), 0.6f, rnd(-1, 1), rnd(0, 2), 1, 0.3f, 0.15f, 0.3f);
                     fx.flash((x + endX) / 2, y, 2, 0.4f, 0.2f, 6, 0.18f);
+                    if (perk("prism") > 0) for (Ball b : new ArrayList<>(balls))
+                        if (!b.docked && Math.abs(b.y - y) < 0.6f && b.x >= Math.min(x, endX) && b.x <= Math.max(x, endX)) splitOne(b);
                     fx.sound(Fx.Sfx.LASER, 0);
                 }
             }
@@ -881,7 +916,8 @@ public final class Game {
                 s.hp -= dmg; s.hitT = 0.15f; fx.burst(b.x, b.y, 10, 1, 0.7f, 0.4f, 5, 0.3f); fx.sound(Fx.Sfx.HIT_HARD, combo);
                 if (s.hp <= 0) {
                     s.alive = false; fx.debris(s.x, s.y, 0x5a4a40, 10); fx.sound(Fx.Sfx.CRUNCH, 0);
-                    spawnLoot(s.x, s.y, "gold", null);
+                    spawnLoot(s.x, s.y, "gold", null); gainXp(12);
+                    if (!B.armored()) spawnLoot(s.x, s.y, "chest", null);
                     if (!B.armored()) msg(switch (kind) {
                         case "gate" -> "FRAME BROKEN - STRIKE THE GATE"; case "bell" -> "THE BELL FALLS - STRIKE IT"; case "foundry" -> "KILNS DOWN - STRIKE THE HEART";
                         case "lodgers" -> "THE LAST LODGER SHOWS ITSELF"; case "copy" -> "ITS MIRRORS ARE GONE - STRIKE IT"; default -> "ARMOR BROKEN - STRIKE THE HEAD"; }, 0xffc43c, 1.3f);
@@ -901,6 +937,7 @@ public final class Game {
         if (endless) endlessNext += lvl != null ? 60 : 120; else bossIdx++;
         if (lvl != null && !endless) { won = true; later(this::openVictory, 2.2f); msg(B.def.name() + " FALLS", 0x7affd4, 2.2f); return; }
         if (B.def.last() && !endless) { won = true; later(this::openVictory, 2.2f); msg("THE HEART IS BROKEN", 0x7affd4, 2.2f); return; }
+        spawnLoot(B.x, B.y, "chest", null);
         msg(B.def.name() + " SLAIN - PATH CLEAR", 0x9cff6a, 1.6f);
         pressureT = pressureMax();
     }
@@ -929,7 +966,7 @@ public final class Game {
         if (dropping != null || pressureT < 0 || state != State.PLAY) return;
         Dropping d = new Dropping();
         d.from = rigY; d.to = -(R + DROP);
-        dropping = d; pressureT = -1; fx.sound(Fx.Sfx.DROP, 0); shake = Math.max(shake, 0.5f);
+        dropping = d; pressureT = -1; zoneT = 0; fx.sound(Fx.Sfx.DROP, 0); shake = Math.max(shake, 0.5f);
         List<Loot> surge = new ArrayList<>(loot); loot.clear();
         for (Loot l : surge) collect(l);                              // magnet surge grabs loose ore & pods
         Ball best = null;
@@ -999,6 +1036,194 @@ public final class Game {
         lastRun = new LastRun(win, depth, earned, parts, fresh, stats.t);
         if (save.pending == null) save.pending = drawCard();
         persist();
+    }
+
+    // ================================================================ jackpot chests
+    /** What a chest choice key means, for the UI. */
+    public record ChestInfo(String name, String desc, int color, String tag) {}
+    public ChestInfo chestInfo(String k) {
+        String[] p = k.split(":", 2);
+        switch (p[0]) {
+            case "up" -> {
+                PowerUp P = pod(p[1]); int top = 0; for (Ball b : balls) top = Math.max(top, b.up(p[1]));
+                String evo = evolvesWith(p[1]);
+                return new ChestInfo(P.name(), "every core: +1 " + P.name().toLowerCase(Locale.ROOT) + " (now " + top + ")", P.color(), evo != null ? "EVOLVES: " + evo : "CORE");
+            }
+            case "shop" -> { ShopItem it = shopItem(p[1]); return new ChestInfo(it.name(), it.desc(), 0xffcf8a, "RIG " + (lv(p[1]) + 1) + "/" + it.max()); }
+            case "gad" -> {
+                Gadget G = gadget(p[1]); boolean up = p[1].equals(gadget);
+                String tag = up ? "GADGET LV " + (gadgetLv + 1) : gadget != null ? "REPLACES " + gadget(gadget).name() : "GADGET [Q]";
+                return new ChestInfo(G.name(), G.desc() + String.format(Locale.ROOT, " · %.0fs", G.cd()[up ? gadgetLv : 0]), G.color(), tag);
+            }
+            case "perk" -> {
+                Perk P = perkDef(p[1]); int rk = perk(p[1]);
+                String tag = P.needs() == null ? "PERK " + (rk + 1) + "/" + P.max() : "COMBO · " + P.needs().toUpperCase(Locale.ROOT).replace("+", " + ");
+                return new ChestInfo(P.name(), P.desc(), P.needs() == null ? 0xc86aff : 0xff7ae0, tag);
+            }
+            case "hull" -> { return new ChestInfo("FIELD REPAIR", "+40 hull now", 0xff8ab0, "HULL"); }
+            case "mult" -> { return new ChestInfo("RICH SEAM", "+0.5 cargo multiplier", 0xffd84a, "CARGO"); }
+            default -> { return new ChestInfo("ASSAY SACK", "+" + Math.round(120 * cargoMult) + " cargo", 0xffd84a, "CARGO"); }
+        }
+    }
+    /** The evolution this core upgrade would complete on some core, or null. */
+    public String evolvesWith(String k) {
+        for (Evolution e : EVOS) for (Ball b : balls) {
+            if (b.evo(e.key()) || b.total() >= MAX_UP) continue;
+            if ((e.a().equals(k) && b.up(k) == 1 && b.up(e.b()) >= 2) || (e.b().equals(k) && b.up(k) == 1 && b.up(e.a()) >= 2)) return e.name();
+        }
+        return null;
+    }
+    private void openChest() {
+        if (state != State.PLAY) { chestQueue++; return; }
+        stats.chests++;
+        double luck = 0.1 * mr("luck") + 0.15 * lv("luck") + Math.max(0, A("pods")) * 0.5;
+        float r = rnd();
+        chestPicks = r < 0.06 + luck * 0.12 ? 5 : r < 0.3 + luck * 0.25 ? 3 : 1;
+        chestTier = chestPicks; chestT = 0;
+        chestBonus = chestPicks == 5 ? Math.round(300 * cargoMult) : chestPicks == 3 ? Math.round(80 * cargoMult) : 0;
+        cargo += chestBonus;
+        state = State.CHEST; rollChest();
+        fx.sound(chestPicks > 1 ? Fx.Sfx.EVOLVE : Fx.Sfx.POD, 0); shake = Math.max(shake, chestPicks == 5 ? 0.6f : 0.2f);
+    }
+    private void rollChest() {
+        List<String> pool = new ArrayList<>(); List<Double> w = new ArrayList<>();
+        boolean room = balls.stream().anyMatch(b -> b.total() < MAX_UP);
+        if (room) for (String k : UP_KEYS) { pool.add("up:" + k); w.add(evolvesWith(k) != null ? 9.0 : 3.0); }
+        for (String k : CHEST_SHOP) { ShopItem it = shopItem(k); if (lv(k) < it.max()) { pool.add("shop:" + k); w.add(1.6); } }
+        for (Gadget G : GADGETS) {
+            if (G.key().equals(gadget)) { if (gadgetLv < GADGET_MAX) { pool.add("gad:" + G.key()); w.add(5.0); } }
+            else { pool.add("gad:" + G.key()); w.add(gadget == null ? 3.5 : 0.8); }
+        }
+        if (hull < maxHull()) { pool.add("hull"); w.add(hull < maxHull() * 0.6f ? 4.0 : 1.0); }
+        pool.add("mult"); w.add(1.2);
+        chestChoices.clear();
+        while (chestChoices.size() < 3 && !pool.isEmpty()) {
+            double tot = 0; for (double x : w) tot += x;
+            double r = rnd() * tot; int i = 0;
+            while (i < pool.size() - 1 && (r -= w.get(i)) > 0) i++;
+            chestChoices.add(pool.remove(i)); w.remove(i);
+        }
+        while (chestChoices.size() < 3) chestChoices.add("cash");
+    }
+    /** Take choice {@code i} (0..2). Ignored while the reel is still spinning. */
+    public void pickChest(int i) {
+        if (state != State.CHEST || chestT < 0.6f || i < 0 || i >= chestChoices.size()) return;
+        String k = chestChoices.get(i); String[] p = k.split(":", 2);
+        stats.chestPicks++; fx.sound(Fx.Sfx.BUY, 0);
+        switch (p[0]) {
+            case "up" -> applyPU(p[1]);
+            case "shop" -> {
+                shop.merge(p[1], 1, Integer::sum);
+                if (p[1].equals("armor")) hull += 20;
+                if (p[1].equals("skimmer") || p[1].equals("laser")) syncPanels();
+                msg(shopItem(p[1]).name(), 0xffcf8a, 0.8f);
+            }
+            case "gad" -> {
+                if (p[1].equals(gadget)) gadgetLv++; else { gadget = p[1]; gadgetLv = 1; }
+                gadgetCd = 0; msg(gadget(gadget).name() + " " + gadgetLv + "  [Q]", gadget(gadget).color(), 1.1f);
+            }
+            case "perk" -> { perks.merge(p[1], 1, Integer::sum); if (p[1].equals("hardened")) hull = Math.min(maxHull(), hull + 20); msg(perkDef(p[1]).name(), 0xc86aff, 0.9f); }
+            case "hull" -> hull = Math.min(maxHull(), hull + 40);
+            case "mult" -> cargoMult += 0.5f;
+            default -> cargo += Math.round(120 * cargoMult);
+        }
+        if (--chestPicks > 0) { if (chestTier == 0) rollPerks(); else rollChest(); chestT = 0.25f; return; }
+        state = State.PLAY;
+        if (levelQueue > 0) openLevelUp();
+        else if (chestQueue > 0) { chestQueue--; openChest(); }
+    }
+
+    // ================================================================ experience & level-up perks
+    public int xpNext() { return xpFor(xpLevel); }
+    private void gainXp(float v) {
+        xp += v * (1 + 0.25f * perk("scholar"));
+        while (xp >= xpNext()) { xp -= xpNext(); xpLevel++; levelQueue++; stats.levels++; }
+    }
+    private void openLevelUp() {
+        if (state != State.PLAY || levelQueue <= 0) return;
+        levelQueue--; chestTier = 0; chestPicks = 1; chestBonus = 0; chestT = 0.3f;
+        state = State.CHEST; rollPerks();
+        fx.sound(Fx.Sfx.EVOLVE, 0); msg("LEVEL " + xpLevel, 0xc86aff, 0.8f);
+    }
+    private boolean needOk(String n) {
+        if (UP_KEYS.contains(n)) return balls.stream().anyMatch(b -> b.up(n) > 0);
+        if (gadget(n) != null) return n.equals(gadget);
+        return switch (n) {
+            case "gadget" -> gadget != null;
+            case "magnet" -> magnetLevel() > 0 || lv("magnet") > 0;
+            case "panels" -> lv("laser") > 0 || lv("skimmer") > 0 || panelT > 0;
+            case "hold" -> catching() || "recall".equals(gadget);
+            case "drill" -> lv("drillbay") > 0 || "auger".equals(gadget) || !drills.isEmpty();
+            default -> false;
+        };
+    }
+    public boolean perkAvailable(Perk P) {
+        if (perk(P.key()) >= P.max()) return false;
+        if (P.needs() == null) return true;
+        for (String n : P.needs().split("\\+")) if (!needOk(n)) return false;
+        return true;
+    }
+    private void rollPerks() {
+        List<String> pool = new ArrayList<>(); List<Double> w = new ArrayList<>();
+        for (Perk P : PERKS) if (perkAvailable(P)) { pool.add("perk:" + P.key()); w.add(P.needs() == null ? 2.0 : P.needs().contains("+") ? 4.0 : 3.0); }
+        chestChoices.clear();
+        while (chestChoices.size() < 3 && !pool.isEmpty()) {
+            double tot = 0; for (double x : w) tot += x;
+            double r = rnd() * tot; int i = 0;
+            while (i < pool.size() - 1 && (r -= w.get(i)) > 0) i++;
+            chestChoices.add(pool.remove(i)); w.remove(i);
+        }
+        for (String f : List.of("hull", "mult", "cash")) if (chestChoices.size() < 3 && !chestChoices.contains(f)) chestChoices.add(f);
+    }
+    /** Round blast centred on a cell (Seismic Charge, Frag Cores). */
+    private void smallBlast(int r0, int c0, float rad, int dmg, Object src) {
+        float x0 = cellX(c0), y0 = -r0; int ri = (int) Math.ceil(rad);
+        for (int r = r0 - ri; r <= r0 + ri; r++) for (int c = c0 - ri; c <= c0 + ri; c++)
+            if (cell(r, c) != 0 && Math.hypot(cellX(c) - x0, -r - y0) <= rad) damageBlock(r, c, dmg, true, src);
+        fx.burst(x0, y0, 20 + (int) (rad * 12), 1, 0.55f, 0.2f, 3 + rad * 3, 0.5f); fx.sound(Fx.Sfx.BOOM, 0);
+        shake = Math.max(shake, 0.2f + rad * 0.15f);
+    }
+    /** Lightning Rod: one arc from a plowed cell to a random neighbour. */
+    private void arcFrom(Ball b, int r0, int c0) {
+        for (int k = 0; k < 6; k++) {
+            int r = r0 + rng.nextInt(5) - 2, c = c0 + rng.nextInt(5) - 2;
+            if (cell(r, c) == 0) continue;
+            for (int s = 0; s <= 8; s++) { float t = s / 8f; fx.spark(lerp(cellX(c0), cellX(c), t), lerp(-r0, -r, t), 0.8f, 0, 0, 0.4f, 0.95f, 1, 0.15f); }
+            damageBlock(r, c, 1, true, b); return;
+        }
+    }
+
+    // ================================================================ gadget
+    private void chargeBlast(int L) {
+        int col = clamp(Math.round(px + HALF - 0.5f), 0, COLS - 1), hitR = -1;
+        for (int r = R + 1; r <= R + 34 && hitR < 0; r++)
+            for (int c : new int[]{col, col - 1, col + 1}) if (cell(r, c) != 0) { hitR = r; col = c; break; }
+        if (hitR < 0) hitR = R + ZONE_OFF + 2;
+        smallBlast(hitR, col, 2.0f + 0.6f * L, 3 + L, "laser");
+        fx.flash(cellX(col), -hitR, 2.2f, 1.2f, 0.5f, 14, 0.5f); fx.debris(cellX(col), -hitR, 0x6a5a48, 16);
+    }
+    public float gadgetMaxCd() { return gadget == null ? 1 : gadget(gadget).cd()[Math.max(0, gadgetLv - 1)]; }
+    /** Fire the equipped gadget (Q / middle mouse). */
+    public void useGadget() {
+        if (state != State.PLAY || gadget == null) return;
+        if (gadgetCd > 0) { fx.sound(Fx.Sfx.DENY, 0); return; }
+        Gadget G = gadget(gadget); int L = gadgetLv;
+        switch (gadget) {
+            case "charge" -> { chargeBlast(L); if (perk("aftershock") > 0) later(() -> chargeBlast(L), 0.6f); }
+            case "overdrive" -> { overdriveT = 3.5f + 1.5f * L; msg("OVERDRIVE", G.color(), 0.8f); fx.sound(Fx.Sfx.EVOLVE, 0); if (perk("overclock") > 0) split(); }
+            case "recall" -> {
+                int i = 0;
+                for (Ball b : balls) if (!b.docked) {
+                    b.docked = true; b.held = true; b.holdT = 0; b.holdX = clamp((i++ % 3 - 1) * padW * 0.3f, -padW / 2, padW / 2);
+                    if (L >= 2) b.boost = Math.max(b.boost, 1.15f + 0.1f * L);
+                    fx.burst(b.x, b.y, 10, 0.5f, 1, 0.85f, 4, 0.3f);
+                }
+                fx.sound(Fx.Sfx.CATCH, 0); msg("RECALL - AIM AND RELEASE", G.color(), 0.9f);
+            }
+            case "auger" -> { for (int i = 0; i < L; i++) launchDrill(px + (i - (L - 1) / 2f) * 2.5f); msg("AUGER", G.color(), 0.8f); }
+            default -> {}
+        }
+        gadgetCd = gadgetMaxCd(); stats.gadgetUses++;
     }
 
     // ================================================================ junction & workshop
@@ -1093,6 +1318,8 @@ public final class Game {
         stats = new Stats(); banksRun = 0; reviveUsed = false; offers.clear(); banished.clear();
         rerollsFree = mr("reroll"); banishLeft = mr("banish"); rerollPaid = 0;
         noise = 0; waterTop = -1e9f; ghosts.clear(); voidLights.clear(); ghostT = 5;
+        chestChoices.clear(); chestPicks = chestQueue = 0; pityCd = 20; zoneT = 0; gadget = null; gadgetLv = 0; gadgetCd = overdriveT = panelT = 0;
+        xp = 0; xpLevel = 0; levelQueue = 0; perks.clear();
         if (hz(LevelHazard.VOID_LIGHTS)) for (int i = 0; i < 3; i++) { VoidLight v = new VoidLight(); v.t0 = i * 2.1f; voidLights.add(v); }
         syncPanels();
         computeArc();
@@ -1129,6 +1356,7 @@ public final class Game {
     public void giveShop(String k, int n) { shop.put(k, n); syncPanels(); }
     /** Open a menu directly (screenshots and testing): shop, junction, foundry, over, victory. */
     public void debugScreen(String which) {
+        if (which.equals("chest")) { reset(); state = State.PLAY; balls.get(0).up.put("blast", 2); balls.get(0).up.put("arc", 1); openChest(); chestT = 5; return; }
         if (state == State.TITLE) start();
         switch (which) {
             case "shop" -> { banked = 2400; openShop(); }
@@ -1167,6 +1395,8 @@ public final class Game {
         time += dt;
         // ---- rig: horizontal
         wideT = Math.max(0, wideT - dt); catchT = Math.max(0, catchT - dt); magT = Math.max(0, magT - dt);
+        gadgetCd = Math.max(0, gadgetCd - dt); overdriveT = Math.max(0, overdriveT - dt); pityCd -= dt;
+        if (panelT > 0 && (panelT -= dt) <= 0) { panelT = 0; syncPanels(); } if (dropping == null) zoneT += dt;
         padW = lerp(padW, basePadW() + (wideT > 0 ? 1.8f : 0), 1 - (float) Math.exp(-dt * 8));
         float lim = HALF - padW / 2;
         if (keys.contains("left")) { pxTarget = px - 54 * dt; usingMouse = false; }
@@ -1209,6 +1439,7 @@ public final class Game {
                 if (b.held && (b.holdT += dt) > holdLimit()) launch();
             } else {
                 b.boost = Math.max(1, b.boost - dt * 0.4f);
+                if (perk("magnetar") > 0 && b.vy > 0 && paddleY - b.y < 7) b.vx += (px - b.x) * 0.3f * Math.max(1, magnetLevel()) * dt;
                 float sp = curSpeed() * b.boost * (b.y < waterTop ? 0.62f : 1);   // flooded rows slow the core
                 if (Math.abs(b.vy) < 0.3f * sp) b.vy = (b.vy < 0 ? -1 : 1) * 0.3f * sp;     // never near-horizontal
                 float s = (float) Math.hypot(b.vx, b.vy); if (s == 0) s = 1;
@@ -1232,9 +1463,10 @@ public final class Game {
         for (Iterator<Loot> it = loot.iterator(); it.hasNext(); ) {
             Loot l = it.next();
             l.vy = Math.min(l.vy + 9 * dt, 7.5f);
-            if (paddleY - l.y < 5 + mg * 1.6f) l.vx += (px - l.x) * (1.1f + mg * 0.8f) * dt;
+            if (paddleY - l.y < 5 + mg * 1.6f || (perk("midasmag") > 0 && l.kind.equals("gold"))) l.vx += (px - l.x) * (1.1f + mg * 0.8f) * dt;
             if (mg > 0 && paddleY - l.y < 2.5f + mg) l.vy += mg * 1.5f * dt;
             l.vx *= 0.985f; l.x = clamp(l.x + l.vx * dt, -HALF + 0.2f, HALF - 0.2f); l.y += l.vy * dt;
+            if ("chest".equals(l.kind)) { l.vx += (px - l.x) * 3 * dt; if (l.y >= paddleY - 0.6f) { it.remove(); collect(l); } continue; }
             if (l.y >= paddleY - 0.6f && l.y < paddleY + 0.2f && Math.abs(l.x - px) <= padW / 2 + 0.35f + mg * 0.12f) { it.remove(); collect(l); }
             else if (l.y > paddleY + 1.2f) { it.remove(); fx.burst(l.x, l.y, 6, 0.5f, 0.4f, 0.3f, 2, 0.3f); }
         }
@@ -1251,11 +1483,19 @@ public final class Game {
                 if (pressureT <= 0) startDrop();
             }
         }
+        if (state == State.PLAY && levelQueue > 0 && dropping == null) openLevelUp();
+        // ---- pity chest: the shaft coughs one up when you're grinding against a tough section
+        if (state == State.PLAY && dropping == null && boss == null && pressureT < 0 && pityCd <= 0
+                && (stats.t - stats.lastProg > CHEST_PITY_IDLE || zoneT > CHEST_PITY_ZONE) && loot.stream().noneMatch(l -> l.kind.equals("chest"))) {
+            spawnLoot(rnd(-HALF + 2, HALF - 2), paddleY - 8, "chest", null); pityCd = 45; zoneT = 0;
+            msg("THE DEEP OFFERS A CHEST", 0xffd84a, 1.2f);
+        }
         rigKick = Math.max(0, rigKick - dt);
     }
 
     /** Decay of purely visual values; call every frame even while paused/menus. */
     public void updateVisuals(float dt) {
+        chestT += dt;
         shake = Math.max(0, shake - dt * 2.2f);
         hullFlash = Math.max(0, hullFlash - dt * 2.5f);
     }
@@ -1287,6 +1527,7 @@ public final class Game {
             if (Math.abs(g - hx) < gap) goal = hx + (g >= hx ? gap : -gap) * (Math.abs(hx + gap) > HALF - padW / 2 ? -1 : 1);
         }
         if (goal != null) { float mv = (10 + 25 * s) * dt; pxTarget += clamp(goal - pxTarget, -mv, mv); }
+        if (gadget != null && gadgetCd <= 0 && boss == null && (stats.t - stats.lastProg > 2.5f || zoneT > 25 || !gadget.equals("recall")) && balls.stream().noneMatch(b -> b.docked)) useGadget();
         if (balls.stream().anyMatch(b -> b.docked)) { bt.lt += dt; if (bt.lt > 0.4f) { launch(); bt.lt = 0; } }
         if (pressureT >= 0 && dropping == null && loot.isEmpty() && pressureT < pressureMax() - 4) startDrop();
     }

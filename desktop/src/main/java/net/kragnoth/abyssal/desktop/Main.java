@@ -151,6 +151,7 @@ public final class Main {
     private void autoplayMenus() {
         switch (game.state) {
             case JUNCTION -> game.closeJunction(true);
+            case CHEST -> game.pickChest(0);
             case SHOP -> game.closeShop();
             case VICTORY -> game.closeVictory(true);
             case OVER -> { if (game.save.pending != null) game.tarotChoice("pass"); else { game.start(); game.bot = new Game.Bot(0.7f); } }
@@ -198,6 +199,7 @@ public final class Main {
                 if (screens.click(ui.toVX(mouseX), ui.toVY(mouseY))) return;
                 if (game.state == State.PLAY) game.launch();
             } else if (button == GLFW_MOUSE_BUTTON_RIGHT && game.state == State.PLAY) game.startDrop();
+            else if (button == GLFW_MOUSE_BUTTON_MIDDLE && game.state == State.PLAY) game.useGadget();
         });
         glfwSetKeyCallback(window, (win, key, sc, action, mods) -> {
             String dir = switch (key) {
@@ -219,11 +221,13 @@ public final class Main {
                 case PLAY -> {
                     if (key == GLFW_KEY_SPACE) game.launch();
                     if (key == GLFW_KEY_E) game.startDrop();
+                    if (key == GLFW_KEY_Q || key == GLFW_KEY_LEFT_SHIFT) game.useGadget();
                     if (key == GLFW_KEY_P || key == GLFW_KEY_ESCAPE) game.togglePause();
                     if (key == GLFW_KEY_C) renderer.crt = !renderer.crt;
                     if (key == GLFW_KEY_J) renderer.jitter = !renderer.jitter;
                 }
                 case PAUSED -> { if (key == GLFW_KEY_P || key == GLFW_KEY_ESCAPE) game.togglePause(); }
+                case CHEST -> { if (key >= GLFW_KEY_1 && key <= GLFW_KEY_3) game.pickChest(key - GLFW_KEY_1); }
                 case JUNCTION -> { if (key == GLFW_KEY_B) game.closeJunction(true); if (key == GLFW_KEY_G) game.closeJunction(false); }
                 case SHOP -> {
                     if (key >= GLFW_KEY_1 && key <= GLFW_KEY_4) game.buyOffer(key - GLFW_KEY_1);

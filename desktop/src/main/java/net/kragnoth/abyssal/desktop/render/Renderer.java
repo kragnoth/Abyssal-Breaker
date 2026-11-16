@@ -389,6 +389,13 @@ public final class Renderer {
         }
         for (Loot l : g.loot) {
             if (l.kind.equals("pu")) continue;
+            if (l.kind.equals("chest")) {
+                float bob = (float) Math.sin(time * 4 + l.x) * 0.08f;
+                unlitDraw(cube, model.identity().translate(l.x, l.y + bob, 0.75f).rotateY((float) Math.sin(time * 1.5) * 0.5f).scale(0.8f, 0.55f, 0.55f), 0x6a3a14);
+                unlitDraw(cube, model.identity().translate(l.x, l.y + bob, 0.75f).rotateY((float) Math.sin(time * 1.5) * 0.5f).scale(0.84f, 0.12f, 0.6f), 0xffc43c);
+                unlitDraw(cube, model.identity().translate(l.x, l.y + bob - 0.14f, 0.75f).rotateY((float) Math.sin(time * 1.5) * 0.5f).scale(0.14f, 0.16f, 0.62f), 0xffe066);
+                continue;
+            }
             int col = l.kind.equals("gold") ? 0xffc43c : 0x5ae6ff;
             unlitDraw(nugget, model.identity().translate(l.x, l.y, 0.75f).rotateY(time * l.spin).rotateX(time * 2), col);
         }
@@ -398,6 +405,7 @@ public final class Renderer {
         for (Loot l : g.loot) {
             if (l.kind.equals("pu")) { int c = pod(l.pu).color(); billboard(o, l.x, l.y, 0.7f, 0.95f, Mth.r(c) * 0.55f, Mth.g(c) * 0.55f, Mth.b(c) * 0.55f, 1, 0, 0, 1, 1); }
             else if (l.kind.equals("gold")) billboard(o, l.x, l.y, 0.7f, 0.55f, 0.6f, 0.42f, 0.06f, 1, 0, 0, 1, 1);
+            else if (l.kind.equals("chest")) { float f = 0.8f + 0.2f * (float) Math.sin(time * 7); billboard(o, l.x, l.y, 0.6f, 1.6f * f, 0.9f, 0.65f, 0.15f, 1, 0, 0, 1, 1); }
             else billboard(o, l.x, l.y, 0.7f, 0.55f, 0.12f, 0.48f, 0.59f, 1, 0, 0, 1, 1);
         }
         for (Drill d : g.drills) billboard(o, g.cellX(d.c), d.y - 1.1f, 0.8f, 2, 1, 0.6f, 0.25f, 1, 0, 0, 1, 1);

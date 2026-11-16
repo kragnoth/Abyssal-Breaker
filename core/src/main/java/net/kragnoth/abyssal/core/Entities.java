@@ -26,6 +26,7 @@ public final class Entities {
         public boolean docked, held, lost;
         public int pierceLeft, lanceLeft = 10, slam;
         public float lastSplit = -9, stuck;
+        public boolean frag;               // fission-born core that detonates on its first hit (FRAG CORES)
         public final Map<String, Integer> up = new HashMap<>();
         public float[] col = {1, 0.55f, 0.2f};
         public int up(String k) { return up.getOrDefault(k, 0); }
@@ -36,7 +37,7 @@ public final class Entities {
 
     public static final class Loot {
         public float x, y, vx, vy, spin;
-        public final String kind;          // "gold", "aether" or "pu"
+        public final String kind;          // "gold", "aether", "pu" or "chest"
         public final String pu;            // power-up key when kind == "pu"
         public Loot(String kind, String pu) { this.kind = kind; this.pu = pu; }
     }
@@ -85,7 +86,7 @@ public final class Entities {
     /** Pacing telemetry; the logic sims read these. */
     public static final class Stats {
         public float t, idle, readyWait, lastProg, firstPod = -1, firstDrop = -1;
-        public int ghostsDispelled, rings, blocks, hullHits, chips, stalHits, drops, maxCores = 1, maxStack, laserShots, skimmed, evos, slams, bossKills, shopSeen;
+        public int ghostsDispelled, rings, blocks, hullHits, chips, stalHits, drops, maxCores = 1, maxStack, laserShots, skimmed, evos, slams, bossKills, shopSeen, chests, chestPicks, gadgetUses, levels;
         public double ore;
         public final float[] coreT = new float[4];
         public final Map<String, Integer> pods = new HashMap<>();

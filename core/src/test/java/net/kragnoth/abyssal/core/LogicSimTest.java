@@ -29,6 +29,7 @@ class LogicSimTest {
             switch (g.state) {
                 case OVER -> { end = g.won ? "won" : "died: " + g.stats.death; t = Float.MAX_VALUE; }
                 case JUNCTION -> g.closeJunction(true);
+                case CHEST -> g.pickChest(0);
                 case VICTORY -> g.closeVictory(false);
                 case SHOP -> {
                     for (int guard = 0; guard < 40; guard++) {
@@ -108,17 +109,17 @@ class LogicSimTest {
             for (String k : new String[]{"hull", "brace", "might", "span", "lode", "winch"}) sd.ranks.put(k, 2);   // a mid-progress player
             Game g = new Game(Fx.NONE, saveOf(sd), 100 + lv);
             g.unlockAll = true;
-            int clears = 0, kills = 0; float mins = 0; StringBuilder ends = new StringBuilder();
+            int clears = 0, kills = 0, chests = 0, gadgets = 0, levels = 0; float mins = 0; StringBuilder ends = new StringBuilder();
             for (int run = 0; run < 6; run++) {
                 assertTrue(g.start(lv), "level " + lv + " refused to start");
                 RunResult rr = playOne(g, 0.55f, 25, false);
                 if (rr.won) clears++;
                 if (rr.end.equals("STUCK")) stuck++;
-                kills += rr.bossKills; mins += rr.minutes;
+                kills += rr.bossKills; mins += rr.minutes; chests += g.stats.chests; gadgets += g.stats.gadgetUses; levels += g.stats.levels;
                 ends.append(rr.end.replace("died: ", "")).append(rr.end.equals("STUCK") ? "" : "@" + rr.depth + "m").append("  ");
             }
-            System.out.printf(Locale.ROOT, "LEVEL %d %-20s cleared %d/6  boss kills %d  avg %.1f min  ghosts %d  rings %d | %s%n",
-                lv + 1, Defs.LEVELS.get(lv).name(), clears, kills, mins / 6, g.stats.ghostsDispelled, g.stats.rings, ends);
+            System.out.printf(Locale.ROOT, "LEVEL %d %-20s cleared %d/6  avg %.1f min  chests %.1f  gadget %.1f  rig levels %.1f per run | %s%n",
+                lv + 1, Defs.LEVELS.get(lv).name(), clears, mins / 6, chests / 6f, gadgets / 6f, levels / 6f, ends);
         }
         assertEquals(0, stuck, "soft-locked level runs");
     }
@@ -146,6 +147,7 @@ class LogicSimTest {
                 g.update(DT);
                 if (g.state == Game.State.JUNCTION) g.closeJunction(r % 2 == 0);
                 if (g.state == Game.State.SHOP) g.closeShop();
+                if (g.state == Game.State.CHEST) g.pickChest(r % 3);
                 if (g.state == Game.State.VICTORY) g.closeVictory(true);
             }
             if (g.state != Game.State.OVER) g.abandon();

@@ -31,16 +31,16 @@ public final class Defs {
     public static final int VIEW_W = 640, VIEW_H = 448;    // PS2 NTSC-ish internal resolution
 
     // ---------------------------------------------------------------- blocks
-    public static final int EMPTY = 0, DIRT = 1, STONE = 2, BASALT = 3, GOLD = 4, AETHER = 5, GAS = 6, SCULK = 7, TAR = 8, MIRROR = 9;
-    public static final int BLOCK_TYPES = 9;
-    public static final int[] HP = {0, 1, 2, 4, 2, 3, 1, 1, 2, 5};
-    public static final boolean[] PIERCE = {false, true, false, false, false, false, false, false, false, false};
-    public static final int[] SCORE = {0, 5, 10, 25, 15, 30, 20, 15, 15, 40};
+    public static final int EMPTY = 0, DIRT = 1, STONE = 2, BASALT = 3, GOLD = 4, AETHER = 5, GAS = 6, SCULK = 7, TAR = 8, MIRROR = 9, CHEST = 10;
+    public static final int BLOCK_TYPES = 10;
+    public static final int[] HP = {0, 1, 2, 4, 2, 3, 1, 1, 2, 5, 3};
+    public static final boolean[] PIERCE = {false, true, false, false, false, false, false, false, false, false, false};
+    public static final int[] SCORE = {0, 5, 10, 25, 15, 30, 20, 15, 15, 40, 60};
     public static final int[][] BASE = {null, {96, 66, 42}, {92, 90, 88}, {44, 42, 54}, {84, 78, 70}, {52, 54, 70}, {58, 72, 46},
-                                        {16, 46, 56}, {24, 19, 17}, {150, 160, 176}};
-    public static final int[] VARIANCE = {0, 26, 20, 12, 18, 14, 18, 16, 8, 10};
-    public static final int[] DEBRIS = {0, 0x6e4e32, 0x6a6866, 0x34323e, 0x8a7a50, 0x3c6a7a, 0x4c6a30, 0x1c4a52, 0x161210, 0x9aa4b8};
-    public static final int[][] ORE = {null, null, null, null, {255, 196, 60}, {90, 230, 255}, {150, 255, 90}, {40, 230, 210}, null, {220, 235, 255}};
+                                        {16, 46, 56}, {24, 19, 17}, {150, 160, 176}, {112, 66, 30}};
+    public static final int[] VARIANCE = {0, 26, 20, 12, 18, 14, 18, 16, 8, 10, 14};
+    public static final int[] DEBRIS = {0, 0x6e4e32, 0x6a6866, 0x34323e, 0x8a7a50, 0x3c6a7a, 0x4c6a30, 0x1c4a52, 0x161210, 0x9aa4b8, 0x8a5a24};
+    public static final int[][] ORE = {null, null, null, null, {255, 196, 60}, {90, 230, 255}, {150, 255, 90}, {40, 230, 210}, null, {220, 235, 255}, null};
 
     // ---------------------------------------------------------------- power-up pods
     public record PowerUp(String key, char letter, int color, String name, int weight, boolean up) {}
@@ -55,12 +55,62 @@ public final class Defs {
         new PowerUp("wide", 'W', 0x9cff6a, "WIDE RIG", 8, false),
         new PowerUp("magnet", 'U', 0xc86aff, "MAGNET SURGE", 6, false),
         new PowerUp("catch", 'C', 0x7affd4, "CATCH", 6, false),
+        new PowerUp("rigs", 'L', 0x6affb0, "WALL RIGS", 7, false),
         new PowerUp("hull", '+', 0xff8ab0, "HULL PATCH", 4, false));
     public static final List<String> UP_KEYS = List.of("split", "str", "pierce", "blast", "arc", "gold");
     public static final Map<String, float[]> UP_RGB = Map.of(
         "split", new float[]{1, 0.45f, 0.1f}, "str", new float[]{1, 0.25f, 0.2f}, "pierce", new float[]{0.85f, 0.92f, 1},
         "blast", new float[]{1, 0.6f, 0.15f}, "arc", new float[]{0.35f, 0.9f, 1}, "gold", new float[]{1, 0.85f, 0.3f});
     public static PowerUp pod(String key) { for (PowerUp p : PODS) if (p.key.equals(key)) return p; throw new IllegalArgumentException(key); }
+
+    // ---------------------------------------------------------------- jackpot chests & gadgets
+    /** Chance per rock cell that it is a buried chest. */
+    public static final double CHEST_CELL = 0.0032;
+    /** Seconds without breaking anything before the shaft coughs up a pity chest. */
+    public static final float CHEST_PITY_IDLE = 12f;
+    /** Seconds in one zone before a pity chest, however slowly it is crumbling. */
+    public static final float CHEST_PITY_ZONE = 70f;
+    public static final int GADGET_MAX = 3;
+    /** One active ability, fired with Q or the middle mouse button. cd = cooldown per gadget level. */
+    public record Gadget(String key, String name, String desc, float[] cd, int color) {}
+    public static final List<Gadget> GADGETS = List.of(
+        new Gadget("charge", "SEISMIC CHARGE", "blast open the rock face below the rig", new float[]{14, 11, 8}, 0xff7a2a),
+        new Gadget("overdrive", "OVERDRIVE", "cores smash through anything for a few seconds", new float[]{24, 20, 16}, 0xff3a3a),
+        new Gadget("recall", "RECALL", "snap every core back onto the bumper to re-aim", new float[]{12, 9, 6}, 0x7affd4),
+        new Gadget("auger", "AUGER", "fire mega drills down into the rock", new float[]{26, 21, 16}, 0xc8c8c8));
+    public static Gadget gadget(String key) { for (Gadget g : GADGETS) if (g.key.equals(key)) return g; return null; }
+    /** Workshop items a chest can hand out for free (the core starters are offered as live upgrades instead). */
+    public static final List<String> CHEST_SHOP = List.of("width", "magnet", "armor", "luck", "drillbay", "clamps", "skimmer", "servo", "catch", "laser");
+
+    // ---------------------------------------------------------------- experience & perks
+    /** Experience needed for the next rig level. */
+    public static int xpFor(int level) { return (int) Math.round(45 * Math.pow(1.5, level)); }
+    /**
+     * A level-up perk. {@code needs} gates the combo perks: null, or '+'-joined requirements -
+     * a core upgrade key (some core has it), a gadget key, or gadget / magnet / panels / hold / drill.
+     */
+    public record Perk(String key, String name, String desc, int max, String needs) {}
+    public static final List<Perk> PERKS = List.of(
+        new Perk("momentum", "MOMENTUM", "every 8-chain adds +1 core damage (max +3)", 2, null),
+        new Perk("chainlink", "CHAIN LINK", "the bumper halves your chain instead of breaking it", 1, null),
+        new Perk("hardened", "HARDENED", "+20 max hull and patch 20 now", 3, null),
+        new Perk("fortune", "FORTUNE", "+20% pod drops", 3, null),
+        new Perk("scholar", "SCHOLAR", "+25% experience", 2, null),
+        new Perk("shrapnel", "SHRAPNEL", "blasts fling shards that crack 2 more blocks", 2, "blast"),
+        new Perk("frag", "FRAG CORES", "cores born from fission detonate on their first hit", 1, "split+blast"),
+        new Perk("conductor", "CONDUCTOR", "arc strikes recharge your gadget (-0.4s each)", 1, "arc+gadget"),
+        new Perk("lightning", "LIGHTNING ROD", "drill-point plows arc to a neighbouring block", 1, "pierce+arc"),
+        new Perk("kinetic", "KINETIC BATTERY", "every bumper hit: gadget cooldown -0.6s", 1, "gadget"),
+        new Perk("scrapfeed", "SCRAP FEED", "ore pickups: gadget cooldown -0.3s", 1, "gadget"),
+        new Perk("magnetar", "MAGNETAR", "your magnet bends falling cores toward the bumper", 1, "magnet"),
+        new Perk("prism", "PRISM", "a laser beam that crosses a core splits it", 1, "panels"),
+        new Perk("riglink", "RIG LINK", "Wall Rigs last twice as long; lasers fire 30% faster", 1, "panels"),
+        new Perk("slingshot", "SLINGSHOT", "held cores launch 40% faster and pierce 3 blocks", 1, "hold"),
+        new Perk("overclock", "OVERCLOCK", "Overdrive also splits every core", 1, "overdrive"),
+        new Perk("aftershock", "AFTERSHOCK", "the Seismic Charge goes off twice", 1, "charge"),
+        new Perk("feeder", "FEEDER DRILL", "mega drills leave a pod behind", 1, "drill"),
+        new Perk("midasmag", "LODESTAR", "Prospector ore homes in on the bumper", 1, "gold+magnet"));
+    public static Perk perkDef(String key) { for (Perk p : PERKS) if (p.key.equals(key)) return p; return null; }
 
     // ---------------------------------------------------------------- evolutions
     public record Evolution(String key, String name, String a, String b, float[] col, String desc) {}
