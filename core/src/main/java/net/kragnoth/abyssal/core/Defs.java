@@ -71,6 +71,8 @@ public final class Defs {
     /** Seconds in one zone before a pity chest, however slowly it is crumbling. */
     public static final float CHEST_PITY_ZONE = 70f;
     public static final int GADGET_MAX = 3;
+    /** Seconds of play between chest / level-up popups; anything earned sooner waits its turn. */
+    public static final float POPUP_GAP = 10f;
     /** One active ability, fired with Q or the middle mouse button. cd = cooldown per gadget level. */
     public record Gadget(String key, String name, String desc, float[] cd, int color) {}
     public static final List<Gadget> GADGETS = List.of(
@@ -84,7 +86,7 @@ public final class Defs {
 
     // ---------------------------------------------------------------- experience & perks
     /** Experience needed for the next rig level. */
-    public static int xpFor(int level) { return (int) Math.round(45 * Math.pow(1.5, level)); }
+    public static int xpFor(int level) { return (int) Math.round(80 * Math.pow(1.4, level)); }
     /**
      * A level-up perk. {@code needs} gates the combo perks: null, or '+'-joined requirements -
      * a core upgrade key (some core has it), a gadget key, or gadget / magnet / panels / hold / drill.

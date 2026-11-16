@@ -144,7 +144,8 @@ public final class Screens {
         }
         float xf = Math.min(1, g.xp / g.xpNext());
         u.rect(0, 0, VW, 4, 0x120c08, 1); u.rect(0, 0, VW * xf, 4, 0xc86aff, 1);
-        u.textCentered("LV " + g.xpLevel + (g.perks.isEmpty() ? "" : "  ·  " + g.perks.size() + " perks"), VW / 2, 7, 11, 0xc86aff);
+        String ready = (g.levelQueue > 0 ? "  ·  LEVEL UP READY" : "") + (g.chestQueue > 0 ? "  ·  CHEST" + (g.chestQueue > 1 ? " x" + g.chestQueue : "") + " READY" : "");
+        u.textCentered("LV " + g.xpLevel + (g.perks.isEmpty() ? "" : "  ·  " + g.perks.size() + " perks") + ready, VW / 2, 7, 11, ready.isEmpty() ? 0xc86aff : 0xffd84a);
         if (g.overdriveT > 0) u.textCentered("OVERDRIVE " + (int) Math.ceil(g.overdriveT) + "s", VW / 2, 52, 16, 0xff3a3a);
         if (g.combo >= 5) u.textCentered(g.combo + " CHAIN", VW / 2, 30, 20, 0xffb347);
         if (msgT > 0) {
@@ -260,7 +261,7 @@ public final class Screens {
         panel(px, py, pw, ph);
         if (tier == 5) { float f = 0.5f + 0.5f * (float) Math.sin(time * 10); u.frame(px - 3, py - 3, pw + 6, ph + 6, 2, f > 0.5f ? 0xffe066 : 0xff7a2a); }
         u.textCentered(title, VW / 2, py + 8, 26, tc);
-        String sub = tier == 0 ? "combo perks unlock as your build grows" : g.chestPicks + (g.chestPicks == 1 ? " pick left" : " picks left");
+        String sub = tier == 0 ? (g.chestPicks > 1 ? g.chestPicks + " picks left  ·  " : "") + "combo perks unlock as your build grows" : g.chestPicks + (g.chestPicks == 1 ? " pick left" : " picks left");
         if (g.chestBonus > 0) sub += "   ·   +" + g.chestBonus + " cargo";
         u.textCentered(sub, VW / 2, py + 38, 12, TXT);
         float cw = 160, ch = 168, cx = VW / 2 - (3 * cw + 2 * 8) / 2, cy = py + 58;

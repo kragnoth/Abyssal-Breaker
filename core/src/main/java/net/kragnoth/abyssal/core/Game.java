@@ -82,7 +82,7 @@ public final class Game {
     public int chestPicks, chestTier, chestQueue;
     public long chestBonus;
     public float chestT;
-    private float pityCd, zoneT;
+    private float pityCd, zoneT, modalCd;
     public String gadget;
     public int gadgetLv;
     public float gadgetCd, overdriveT, panelT;
@@ -1074,7 +1074,7 @@ public final class Game {
         return null;
     }
     private void openChest() {
-        if (state != State.PLAY) { chestQueue++; return; }
+        if (state != State.PLAY || modalCd > 0) { chestQueue++; return; }
         stats.chests++;
         double luck = 0.1 * mr("luck") + 0.15 * lv("luck") + Math.max(0, A("pods")) * 0.5;
         float r = rnd();
@@ -1128,9 +1128,7 @@ public final class Game {
             default -> cargo += Math.round(120 * cargoMult);
         }
         if (--chestPicks > 0) { if (chestTier == 0) rollPerks(); else rollChest(); chestT = 0.25f; return; }
-        state = State.PLAY;
-        if (levelQueue > 0) openLevelUp();
-        else if (chestQueue > 0) { chestQueue--; openChest(); }
+        state = State.PLAY; modalCd = POPUP_GAP;
     }
 
     // ================================================================ experience & level-up perks
@@ -1141,7 +1139,7 @@ public final class Game {
     }
     private void openLevelUp() {
         if (state != State.PLAY || levelQueue <= 0) return;
-        levelQueue--; chestTier = 0; chestPicks = 1; chestBonus = 0; chestT = 0.3f;
+        chestTier = 0; chestPicks = levelQueue; levelQueue = 0; chestBonus = 0; chestT = 0.3f;
         state = State.CHEST; rollPerks();
         fx.sound(Fx.Sfx.EVOLVE, 0); msg("LEVEL " + xpLevel, 0xc86aff, 0.8f);
     }
@@ -1318,7 +1316,7 @@ public final class Game {
         stats = new Stats(); banksRun = 0; reviveUsed = false; offers.clear(); banished.clear();
         rerollsFree = mr("reroll"); banishLeft = mr("banish"); rerollPaid = 0;
         noise = 0; waterTop = -1e9f; ghosts.clear(); voidLights.clear(); ghostT = 5;
-        chestChoices.clear(); chestPicks = chestQueue = 0; pityCd = 20; zoneT = 0; gadget = null; gadgetLv = 0; gadgetCd = overdriveT = panelT = 0;
+        chestChoices.clear(); chestPicks = chestQueue = 0; pityCd = 20; zoneT = 0; modalCd = 0; gadget = null; gadgetLv = 0; gadgetCd = overdriveT = panelT = 0;
         xp = 0; xpLevel = 0; levelQueue = 0; perks.clear();
         if (hz(LevelHazard.VOID_LIGHTS)) for (int i = 0; i < 3; i++) { VoidLight v = new VoidLight(); v.t0 = i * 2.1f; voidLights.add(v); }
         syncPanels();
@@ -1395,7 +1393,7 @@ public final class Game {
         time += dt;
         // ---- rig: horizontal
         wideT = Math.max(0, wideT - dt); catchT = Math.max(0, catchT - dt); magT = Math.max(0, magT - dt);
-        gadgetCd = Math.max(0, gadgetCd - dt); overdriveT = Math.max(0, overdriveT - dt); pityCd -= dt;
+        gadgetCd = Math.max(0, gadgetCd - dt); overdriveT = Math.max(0, overdriveT - dt); pityCd -= dt; modalCd -= dt;
         if (panelT > 0 && (panelT -= dt) <= 0) { panelT = 0; syncPanels(); } if (dropping == null) zoneT += dt;
         padW = lerp(padW, basePadW() + (wideT > 0 ? 1.8f : 0), 1 - (float) Math.exp(-dt * 8));
         float lim = HALF - padW / 2;
@@ -1483,9 +1481,12 @@ public final class Game {
                 if (pressureT <= 0) startDrop();
             }
         }
-        if (state == State.PLAY && levelQueue > 0 && dropping == null) openLevelUp();
+        if (state == State.PLAY && dropping == null && modalCd <= 0) {          // one popup at a time, spaced out
+            if (chestQueue > 0) { chestQueue--; openChest(); }
+            else if (levelQueue > 0) openLevelUp();
+        }
         // ---- pity chest: the shaft coughs one up when you're grinding against a tough section
-        if (state == State.PLAY && dropping == null && boss == null && pressureT < 0 && pityCd <= 0
+        if (state == State.PLAY && dropping == null && boss == null && pressureT < 0 && pityCd <= 0 && chestQueue == 0
                 && (stats.t - stats.lastProg > CHEST_PITY_IDLE || zoneT > CHEST_PITY_ZONE) && loot.stream().noneMatch(l -> l.kind.equals("chest"))) {
             spawnLoot(rnd(-HALF + 2, HALF - 2), paddleY - 8, "chest", null); pityCd = 45; zoneT = 0;
             msg("THE DEEP OFFERS A CHEST", 0xffd84a, 1.2f);
