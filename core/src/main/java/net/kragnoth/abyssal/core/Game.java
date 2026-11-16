@@ -827,7 +827,7 @@ public final class Game {
         if (lvl == null) return;
         switch (lvl.hazard()) {
             case GHOSTS -> updateGhosts(dt);
-            case FLOOD -> waterTop = paddleY - 4.5f - (float) (0.5 + 0.5 * Math.sin(time * 0.25)) * 7f;
+            case FLOOD -> waterTop = rigY - 5.5f - (float) (0.5 + 0.5 * Math.sin(time * 0.25)) * 7f;
             case NOISE -> {
                 noise = Math.max(0, noise - 3 * dt);
                 if (noise >= 100) {                                       // something huge hears the gates
