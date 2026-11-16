@@ -27,7 +27,7 @@ import static org.lwjgl.opengl.GL33C.*;
 
 /**
  * Abyssal Breaker desktop launcher.
- * Options: --windowed WxH, --fullscreen, --demo (bot plays), --boss N (jump to wyrm N, 0-3),
+ * Options: --windowed WxH, --fullscreen, --demo (bot plays), --level N (1-7, 0 = Classic), --unlock-all, --boss N (jump to wyrm N, 0-3),
  * --screen shop|junction|foundry|over|victory (open a menu), --shot FILE --shot-after SECONDS (screenshot then exit).
  */
 public final class Main {
@@ -58,7 +58,7 @@ public final class Main {
     }
 
     private void run(String[] args) {
-        boolean demo = false; int boss = -1; String shot = null, screen = null; double shotAfter = 3;
+        boolean demo = false, unlockAll = false; int boss = -1, startLevel = -2; String shot = null, screen = null; double shotAfter = 3;
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
                 case "--fullscreen" -> fullscreen = true;
@@ -67,6 +67,8 @@ public final class Main {
                 case "--boss" -> boss = Integer.parseInt(args[++i]);
                 case "--shot" -> shot = args[++i];
                 case "--screen" -> screen = args[++i];
+                case "--level" -> startLevel = Integer.parseInt(args[++i]) - 1;
+                case "--unlock-all" -> unlockAll = true;
                 case "--shot-after" -> shotAfter = Double.parseDouble(args[++i]);
                 default -> System.err.println("unknown option " + args[i]);
             }
@@ -105,8 +107,10 @@ public final class Main {
         screens.onQuit = () -> running = false;
         installInput();
 
-        if (demo || boss >= 0) { game.start(); game.bot = new Game.Bot(0.7f); }
-        if (boss >= 0) game.debugBossScene(boss);
+        game.unlockAll = unlockAll;
+        if (startLevel >= -1) { game.unlockAll |= demo; game.start(startLevel); if (demo) game.bot = new Game.Bot(0.7f); }
+        else if (demo || boss >= 0) { game.start(-1); game.bot = new Game.Bot(0.7f); }
+        if (boss >= 0) { if (game.bot == null) game.bot = new Game.Bot(0.7f); game.debugBossScene(boss); }
         if (screen != null) game.debugScreen(screen);
 
         double last = glfwGetTime(), started = last, titleT = 0;
@@ -206,7 +210,12 @@ public final class Main {
             if (key == GLFW_KEY_F11) { toggleFullscreen(); return; }
             if (key == GLFW_KEY_M) { audio.muted = !audio.muted; return; }
             switch (game.state) {
-                case TITLE -> { if (key == GLFW_KEY_SPACE || key == GLFW_KEY_ENTER) game.start(); if (key == GLFW_KEY_F) game.openFoundry(); if (key == GLFW_KEY_ESCAPE) running = false; }
+                case TITLE -> { if (key == GLFW_KEY_SPACE || key == GLFW_KEY_ENTER) game.openLevels(); if (key == GLFW_KEY_F) game.openFoundry(); if (key == GLFW_KEY_ESCAPE) running = false; }
+                case LEVELS -> {
+                    if (key >= GLFW_KEY_1 && key <= GLFW_KEY_7) game.start(key - GLFW_KEY_1);
+                    if (key == GLFW_KEY_C) game.start(-1);
+                    if (key == GLFW_KEY_ESCAPE) game.closeLevels();
+                }
                 case PLAY -> {
                     if (key == GLFW_KEY_SPACE) game.launch();
                     if (key == GLFW_KEY_E) game.startDrop();
@@ -231,6 +240,7 @@ public final class Main {
                     } else {
                         if (key == GLFW_KEY_R) game.start();
                         if (key == GLFW_KEY_F) game.openFoundry();
+                        if (key == GLFW_KEY_L) game.openLevels();
                     }
                 }
                 case VICTORY -> { if (key == GLFW_KEY_S) game.closeVictory(false); if (key == GLFW_KEY_E) game.closeVictory(true); }

@@ -18,8 +18,9 @@ class LogicSimTest {
 
     record RunResult(String end, float minutes, int depth, boolean won, int bossKills, int evos, int maxStack, long scrip) {}
 
-    static RunResult playOne(Game g, float skill, float maxMinutes) {
-        assertTrue(g.start(), "a pending tarot card blocked the run");
+    static RunResult playOne(Game g, float skill, float maxMinutes) { assertTrue(g.start(-1), "a pending tarot card blocked the run"); return playOne(g, skill, maxMinutes, true); }
+
+    static RunResult playOne(Game g, float skill, float maxMinutes, boolean meta) {
         g.bot = new Game.Bot(skill);
         float t = 0;
         String end = "timeout";
@@ -54,11 +55,12 @@ class LogicSimTest {
         RunResult rr = new RunResult(end, g.stats.t / 60f, g.lastRun == null ? 0 : g.lastRun.depthM(), g.won, g.bossKills, g.stats.evos, g.stats.maxStack,
             g.lastRun == null ? 0 : g.lastRun.earned());
         // between runs: tarot (keep strong cards, else pass for scrip) and Foundry (cheapest unlocked rank first)
+        if (g.save.pending != null && !meta) g.tarotChoice("pass");
         if (g.save.pending != null) {
             long v = g.cardValue(g.save.pending);
             g.tarotChoice(g.save.hand.size() < 3 && v >= 140 ? "keep" : "pass");
         }
-        for (int guard = 0; guard < 60; guard++) {
+        for (int guard = 0; guard < (meta ? 60 : 0); guard++) {
             MetaItem m = Defs.META.stream().filter(g::metaUnlocked).filter(x -> g.mr(x.key()) < x.max())
                 .min(Comparator.comparingLong(g::metaCost)).orElse(null);
             if (m == null || g.metaCost(m) > g.save.scrip) break;
@@ -79,7 +81,7 @@ class LogicSimTest {
 
     @Test
     void chainedSessionPlaysCleanly() {
-        Game g = new Game(Fx.NONE, SaveStore.memory(), 42);
+        Game g = new Game(Fx.NONE, SaveStore.memory(), Long.getLong("simSeed", 1L));
         int runs = 30, wins = 0, stuck = 0, evoRuns = 0, kills = 0;
         float minutes = 0;
         for (int r = 0; r < runs; r++) {
@@ -96,6 +98,41 @@ class LogicSimTest {
             runs, wins, kills, evoRuns, minutes / runs, g.save.ranks.values().stream().mapToInt(Integer::intValue).sum());
         assertEquals(0, stuck, "soft-locked runs");
         assertTrue(g.save.rec.runs == runs, "every run should have been recorded");
+    }
+
+    @Test
+    void everyLevelPlaysCleanly() {
+        int stuck = 0;
+        for (int lv = 0; lv < Defs.LEVELS.size(); lv++) {
+            SaveData sd = new SaveData();
+            for (String k : new String[]{"hull", "brace", "might", "span", "lode", "winch"}) sd.ranks.put(k, 2);   // a mid-progress player
+            Game g = new Game(Fx.NONE, saveOf(sd), 100 + lv);
+            g.unlockAll = true;
+            int clears = 0, kills = 0; float mins = 0; StringBuilder ends = new StringBuilder();
+            for (int run = 0; run < 6; run++) {
+                assertTrue(g.start(lv), "level " + lv + " refused to start");
+                RunResult rr = playOne(g, 0.55f, 25, false);
+                if (rr.won) clears++;
+                if (rr.end.equals("STUCK")) stuck++;
+                kills += rr.bossKills; mins += rr.minutes;
+                ends.append(rr.end.replace("died: ", "")).append(rr.end.equals("STUCK") ? "" : "@" + rr.depth + "m").append("  ");
+            }
+            System.out.printf(Locale.ROOT, "LEVEL %d %-20s cleared %d/6  boss kills %d  avg %.1f min  ghosts %d  rings %d | %s%n",
+                lv + 1, Defs.LEVELS.get(lv).name(), clears, kills, mins / 6, g.stats.ghostsDispelled, g.stats.rings, ends);
+        }
+        assertEquals(0, stuck, "soft-locked level runs");
+    }
+
+    static SaveStore saveOf(SaveData d) { SaveStore m = SaveStore.memory(); m.store(d); return m; }
+
+    @Test
+    void levelUnlocksFollowClears() {
+        Game g = new Game(Fx.NONE, SaveStore.memory(), 3);
+        assertTrue(g.levelUnlocked(0));
+        assertFalse(g.levelUnlocked(1));
+        assertFalse(g.start(2), "locked level must not start");
+        g.save.rec.cleared |= 1;
+        assertTrue(g.levelUnlocked(1));
     }
 
     @Test

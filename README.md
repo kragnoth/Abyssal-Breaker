@@ -25,8 +25,10 @@ The fat jar bundles LWJGL natives for Linux, Windows and macOS, so the same jar 
 |---|---|
 | `--fullscreen` / `--windowed 1920x1344` | window mode (F11 toggles in game) |
 | `--demo` | the bot plays, menus included |
-| `--boss 0..3` | jump straight to a wyrm in its biome |
-| `--screen shop\|junction\|foundry\|over\|victory` | open a menu directly |
+| `--level N` | start level N (1-7, 0 = Classic); with `--demo` the bot plays it |
+| `--unlock-all` | open every level |
+| `--boss 0..3` | jump straight to a wyrm in its biome (with `--level`, to that level's boss) |
+| `--screen levels\|shop\|junction\|foundry\|over\|victory` | open a menu directly |
 | `--shot FILE --shot-after SECONDS` | save a PNG of the window, then exit |
 
 Saves go to `~/.local/share/abyssal-breaker/save.json` on Linux (or `$XDG_DATA_HOME`), `%APPDATA%\AbyssalBreaker` on Windows, and `~/Library/Application Support/AbyssalBreaker` on macOS.
@@ -43,7 +45,28 @@ Saves go to `~/.local/share/abyssal-breaker/save.json` on Linux (or `$XDG_DATA_H
 | B / G | junction: bank / push on |
 | 1-4, 5, R, Enter | workshop: buy card, repair, reroll, continue |
 | K / P / 1-3 | tarot: keep / pass / replace |
+| Space / Enter (title), 1-7, C, Esc | level select: open, pick a level, Classic, back |
+| L | level select (game-over screen) |
 | F | Foundry (title and game-over screens) |
+
+## Levels
+
+The levels follow the depth bands in the *Gearwright's Hollow* pack bible. Clearing a level unlocks the next, and **Classic Descent** (the original four-wyrm run) is always open. **DESCEND** on the title screen opens the level select, where the bible's loading-screen lines rotate along the bottom.
+
+| # | Level | Hazard | Boss |
+|---|---|---|---|
+| 1 | The Shaft | falling debris | none: reach the shaft floor at 60m |
+| 2 | The Gatehouse | clerks' ghosts drift to broken cells and rebuild them; touch one with a core to dispel it | **The Open Gate**: a frame that keeps spawning blocks; break the 8 frame stones, then the gate |
+| 3 | The Tidewell | flooding rows rise and fall and slow the core to 62% | **The Great One**: a slow, huge wyrm in the flooded halls |
+| 4 | The Listening Post | sculk seams: every hit adds noise; at 100, *it hears you* (hull damage, cores knocked down) | **Brandt's Bell**: break its 4 supports; striking the bell while it hangs rings it |
+| 5 | Below | tar holds a core for half a second | **Gale's Banked Foundry**: 5 kilns vent fire up at the rig after a warning; kill the kilns, then the heart |
+| 6 | Beyond | lights in the void pull passing cores off course | **Marsh's Lodgers**: six presences that wander and dive through the rig; the last shows itself |
+| 7 | The Hollow | mirror blocks send the core straight back | **Your Copy**: an upside-down rig that mirrors your moves and bats cores back hard; break its 4 mirrors first |
+
+Each level has its own block palette, fog and lighting, and adds new block types where the bible calls for them (sculk, tar, mirrors). Beating a level's boss offers **Surface** (bank everything, ×1.5 scrip) or **Endless** (the boss returns every 60m, stronger each lap).
+
+![level select](docs/level-select.png)
+![bosses](docs/level-bosses.png)
 
 ## What's in it
 
@@ -76,7 +99,7 @@ desktop/   LWJGL front-end
 
 ## Logic-sim tests
 
-`./gradlew build` runs `LogicSimTest`. A bot with human-like reaction time and aim error plays 30 chained runs, spending scrip in the Foundry and resolving tarot cards between runs. The build fails on any exception, soft-lock (60 s without progress), or broken invariant (upgrade cap, core cap). The test also checks that the world-generation noise matches the browser build bit for bit. Run `./gradlew :core:test` to see the per-run log.
+`./gradlew build` runs `LogicSimTest`. It also plays every level six times with a mid-progress bot and fails the build if any run soft-locks. A bot with human-like reaction time and aim error plays 30 chained runs, spending scrip in the Foundry and resolving tarot cards between runs. The build fails on any exception, soft-lock (60 s without progress), or broken invariant (upgrade cap, core cap). The test also checks that the world-generation noise matches the browser build bit for bit. Run `./gradlew :core:test` to see the per-run log.
 
 ## Notes for a Minecraft port
 

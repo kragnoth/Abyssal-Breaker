@@ -36,7 +36,7 @@ public final class Renderer {
     private final Mesh[] blockVariants = new Mesh[6];
     private final float[][] blockVariantData = new float[6][];
     private final Mesh backWall, sideWall, rail, girder, post2, cube, chassis, bumper, vent, piston, wheel, winchM, coil, beam, clampBox,
-        drillCone, panelBox, strip, warnBox, stalCone, seg, head, eye, ball, nugget;
+        drillCone, panelBox, strip, warnBox, stalCone, bellMesh, seg, head, eye, ball, nugget;
     // dynamic meshes
     private final Mesh dynDebris = new Mesh(true), dynSparks = new Mesh(true), dynGlow = new Mesh(true), dynPods = new Mesh(true), dynBeams = new Mesh(true);
     private final FloatList scratch = new FloatList(1 << 16);
@@ -78,6 +78,7 @@ public final class Renderer {
         strip = Mesh.of(Geo.box(0.12f, 0.9f, 0.1f));
         warnBox = Mesh.of(Geo.box(1.1f, 0.12f, 1.3f));
         stalCone = Mesh.of(Geo.cylinder(0.42f, 0, 1.7f, 6));
+        bellMesh = Mesh.of(Geo.cylinder(0.45f, 1.0f, 1.4f, 10));
         seg = Mesh.of(Geo.icosahedron(0.5f));
         head = Mesh.of(Geo.dodecahedron(0.72f));
         eye = Mesh.of(Geo.box(0.16f, 0.12f, 0.1f));
@@ -136,7 +137,7 @@ public final class Renderer {
         float ty = g.rigY - CAM_TARGET_BELOW_RIG;
         view.setLookAt(sx, ty + 5.5f + sy, 26, sx * 0.5f, ty + sy * 0.5f, 0, 0, 1, 0);
         view.positiveX(camRight); view.positiveY(camUp);
-        Atmosphere atm = Defs.atmosphereAt(-g.rigY * M_PER_ROW);
+        Atmosphere atm = g.atmosphere();
         buildLights(g, fx);
 
         glBindFramebuffer(GL_FRAMEBUFFER, fbo);
@@ -178,6 +179,7 @@ public final class Renderer {
         java.util.Arrays.fill(lightPos, 0); java.util.Arrays.fill(lightCol, 0);
         for (int i = 0; i < NL; i++) { lightPos[i * 4 + 1] = 1e4f; lightPos[i * 4 + 3] = 1; }
         if (g.boss != null) { Boss B = g.boss; boolean tele = B.phase.equals("tele") && ((int) (time * 14)) % 2 == 1; li = put(li, B.x, B.y, 1.5f, 6, tele ? 2.2f : 1.2f, 0.3f, 0.2f); }
+        for (var v : g.voidLights) li = put(li, v.x, v.y, 1.5f, 6, 0.9f, 0.5f, 1.6f);
         if (!g.drills.isEmpty()) { Drill d = g.drills.get(0); li = put(li, g.cellX(d.c), d.y - 1, 1.5f, 9, 2.4f, 1.3f, 0.5f); }
         int nb = 0;
         for (Ball b : g.balls) {
@@ -227,7 +229,7 @@ public final class Renderer {
 
     // ---- shaft rows: one cached mesh per row, rebuilt when the row changes (like Minecraft chunk sections)
     private void drawRows(Game g) {
-        tex.blocks.bind(0);
+        tex.blocks(g.level).bind(0);
         lit.set("uModel", model.identity()).set("uTint", 2.2f, 2.2f, 2.2f).set("uUvScale", 1, 1).set("uUvOff", 0, 0).set("uEmis", 0, 0, 0);
         rowMeshes.entrySet().removeIf(e -> { if (!g.rows.containsKey(e.getKey())) { e.getValue().mesh.delete(); return true; } return false; });
         for (Row row : g.rows.values()) {
@@ -243,7 +245,7 @@ public final class Renderer {
         for (int c = 0; c < COLS; c++) {
             int t = row.t[c];
             if (t == 0) continue;
-            int v = (int) (Mth.hash(c, row.r * 3, 5) * 6), rot = (int) (Mth.hash(c * 5, row.r, 5) * 4);
+            int v = (int) (Mth.hash(c, row.r * 3, 5) * 6), rot = t == MIRROR ? 0 : (int) (Mth.hash(c * 5, row.r, 5) * 4);
             float ratio = row.maxHp[c] > 0 ? (float) row.hp[c] / row.maxHp[c] : 1;
             int crack = ratio >= 0.999f ? 0 : ratio <= 0.5f ? 2 : 1;
             float sc = crack > 0 ? 0.94f + ratio * 0.06f : 1;
@@ -298,7 +300,10 @@ public final class Renderer {
     private void drawMachines(Game g) {
         for (Drill d : g.drills) litDraw(drillCone, tex.metal, model.identity().translate(g.cellX(d.c), d.y, 0.3f).rotateY(time * 25), 2.1f);
         for (Panel p : g.panels) litDraw(panelBox, tex.metal, model.identity().translate(p.side * (HALF + 0.3f), p.y, 0.3f), 2.1f);
-        for (Hazard h : g.hazards) if (h.falling) litDraw(stalCone, tex.metal, model.identity().translate(h.x, h.y, 0), 2.1f);
+        for (Hazard h : g.hazards) {
+            if (h.falling) litDraw(stalCone, tex.metal, model.identity().translate(h.x, h.y, 0), 2.1f);
+            else if (h.rising && h.warn <= 0) litTinted(stalCone, tex.hazard, model.identity().translate(h.x, h.y, 0.2f).rotateZ((float) Math.PI), new float[]{0, 0, 0}, 2.2f, 0.9f, 0.2f);
+        }
         unlit.use().set("uView", view).set("uProj", proj).set("uVColor", 0);
         for (Panel p : g.panels) {
             float x = p.side * (HALF + 0.3f);
@@ -312,14 +317,17 @@ public final class Renderer {
     private void drawBoss(Game g) {
         Boss B = g.boss;
         if (B == null) return;
+        String kind = B.def.kind();
+        if (!kind.equals("wyrm")) { drawOtherBoss(g, B, kind); return; }
         float[] tint = {B.def.col()[0] * 2.3f, B.def.col()[1] * 2.3f, B.def.col()[2] * 2.3f};
+        float ss = B.def.segR() / 0.62f, hs = B.def.headR() / 0.95f;
         for (Segment s : B.segs) {
             if (!s.alive) continue;
-            Matrix4f m = model.identity().translate(s.x, s.y, 0).rotateXYZ(time + s.x, time * 0.7f, 0).scale(1 + s.hitT * 1.5f);
+            Matrix4f m = model.identity().translate(s.x, s.y, 0).rotateXYZ(time + s.x, time * 0.7f, 0).scale((1 + s.hitT * 1.5f) * ss);
             litTinted(seg, tex.boss, m, tint, 0, 0, 0);
         }
         boolean tele = B.phase.equals("tele") && ((int) (time * 14)) % 2 == 1, armored = B.armored();
-        Matrix4f hm = new Matrix4f().translate(B.x, B.y, 0.2f).rotateZ(B.dir + (float) Math.PI / 2).rotateY((float) Math.sin(time * 3) * 0.3f);
+        Matrix4f hm = new Matrix4f().translate(B.x, B.y, 0.2f).rotateZ(B.dir + (float) Math.PI / 2).rotateY((float) Math.sin(time * 3) * 0.3f).scale(hs);
         float[] ht = {B.def.col()[0] * 2.4f, B.def.col()[1] * 2.4f, B.def.col()[2] * 2.4f};
         litTinted(head, tex.metal, hm, ht, B.hitT > 0 ? 1.5f : tele ? 0.8f : 0, B.hitT > 0 ? 0.6f : 0.1f, 0);
         unlit.use().set("uView", view).set("uProj", proj).set("uVColor", 0);
@@ -327,10 +335,55 @@ public final class Renderer {
         lit.use();
     }
 
+    /** Gate, bell, foundry, lodgers and the copy. */
+    private void drawOtherBoss(Game g, Boss B, String kind) {
+        float[] col = B.def.col(), tint = {col[0] * 2.3f, col[1] * 2.3f, col[2] * 2.3f};
+        boolean armored = B.armored();
+        float hit = B.hitT > 0 ? 1.5f : 0;
+        switch (kind) {
+            case "gate" -> {
+                for (Segment s : B.segs) if (s.alive) litTinted(cube, tex.boss, model.identity().translate(s.x, s.y, 0).rotateZ(0.1f * (float) Math.sin(time + s.x)).scale(1.1f + s.hitT, 1.1f + s.hitT, 1.2f), tint, 0, 0, 0);
+                litTinted(head, tex.metal, model.identity().translate(B.x, B.y, 0).rotateXYZ(time * 0.7f, time, 0).scale(1.05f), new float[]{0.8f, 2.2f, 2.0f}, armored ? 0.3f + hit : 1.2f + hit, armored ? 1.0f : 1.6f, 1.0f);
+            }
+            case "bell" -> {
+                float ax = 0, ay = B.y + (armored ? 0 : B.dropT * 2);
+                unlit.use().set("uView", view).set("uProj", proj).set("uVColor", 0);
+                for (Segment s : B.segs) if (s.alive) line(s.x, s.y, B.x, B.y + 0.8f, 0.05f, 0x3a3028);
+                lit.use();
+                for (Segment s : B.segs) if (s.alive) litTinted(cube, tex.metal, model.identity().translate(s.x, s.y, 0).scale(0.8f + s.hitT), new float[]{1.8f, 1.6f, 1.4f}, 0, 0, 0);
+                litTinted(bellMesh, tex.metal, model.identity().translate(B.x, B.y, 0.1f).rotateZ((float) Math.sin(time * 0.9) * 0.18f * (armored ? 1 : 0)), new float[]{2.8f, 2.2f, 1.1f}, hit, hit * 0.6f, 0);
+            }
+            case "foundry" -> {
+                for (Segment s : B.segs) if (s.alive) {
+                    litTinted(cube, tex.boss, model.identity().translate(s.x, s.y, 0).scale(1.3f + s.hitT, 1.5f + s.hitT, 1.3f), tint, 0, 0, 0);
+                    litTinted(vent, tex.hazard, model.identity().translate(s.x, s.y - 0.2f, 0.7f).scale(0.9f, 1.8f, 1), new float[]{0, 0, 0}, 1.6f + (float) Math.sin(time * 7 + s.x) * 0.5f, 0.45f, 0.08f);
+                }
+                litTinted(cube, tex.metal, model.identity().translate(B.x, B.y, -0.2f).scale(2.6f, 1.7f, 1.4f), new float[]{2.0f, 1.4f, 1.2f}, (armored ? 0.5f : 1.6f) + hit, armored ? 0.12f : 0.4f, 0.05f);
+            }
+            case "lodgers" -> {
+                for (Segment s : B.segs) if (s.alive) litTinted(head, tex.boss, model.identity().translate(s.x, s.y, 0).rotateXYZ(time * 1.3f + s.t0, time, 0).scale(0.75f + s.hitT), new float[]{0.5f, 0.45f, 0.7f}, 0.25f + (s.lunging ? 0.8f : 0), 0.15f, 0.45f);
+                if (!armored) litTinted(head, tex.boss, model.identity().translate(B.x, B.y, 0).rotateXYZ(time, time * 0.6f, 0).scale(1.2f), new float[]{0.6f, 0.5f, 0.9f}, 0.5f + hit, 0.25f, 0.8f);
+            }
+            case "copy" -> {                                            // a dark second rig, upside down
+                Matrix4f cm = new Matrix4f().translate(B.x, B.y, 0).rotateZ((float) Math.PI).scale(g.padW / PW, 1, 1);
+                float[] dark = {0.9f, 1.4f, 1.4f};
+                litTinted(chassis, tex.metal, new Matrix4f(cm).translate(0, 0.05f, 0), dark, hit * 0.3f, hit, hit);
+                litTinted(bumper, tex.hazard, new Matrix4f(cm).translate(0, -0.46f, 0), new float[]{0.7f, 1.6f, 1.5f}, 0.1f, 0.3f, 0.3f);
+                for (Segment s : B.segs) if (s.alive) litTinted(cube, tex.metal, model.identity().translate(s.x, s.y, 0.2f).rotateZ(time * 2 + s.t0).scale(0.55f + s.hitT, 0.8f + s.hitT, 0.12f), new float[]{2.6f, 2.8f, 3.0f}, 0.4f, 0.55f, 0.6f);
+            }
+            default -> {}
+        }
+    }
+    private void line(float x0, float y0, float x1, float y1, float w, int hex) {
+        float dx = x1 - x0, dy = y1 - y0, len = (float) Math.hypot(dx, dy);
+        unlitDraw(cube, model.identity().translate((x0 + x1) / 2, (y0 + y1) / 2, -0.1f).rotateZ((float) Math.atan2(dy, dx)).scale(len, w, w), hex);
+    }
+
     private void drawCoresAndLoot(Game g) {
         unlit.use().set("uView", view).set("uProj", proj).set("uVColor", 0);
         for (Ball b : g.balls) {
             float sc = 1 + b.total() * 0.07f + b.evoCount() * 0.15f;
+            if (b.stuck > 0) { unlitDraw(ball, model.identity().translate(b.x, b.y, 0.2f).scale(sc * 1.2f), 0.08f, 0.06f, 0.05f); continue; }
             float r = b.evoCount() > 0 ? 1 : 0.75f + b.col[0] * 0.35f, gg = b.evoCount() > 0 ? 1 : 0.75f + b.col[1] * 0.35f, bl = b.evoCount() > 0 ? 1 : 0.7f + b.col[2] * 0.35f;
             unlitDraw(ball, model.identity().translate(b.x, b.y, 0.2f).rotateZ(time * 9).scale(sc), r, gg, bl);
         }
@@ -348,6 +401,11 @@ public final class Renderer {
             else billboard(o, l.x, l.y, 0.7f, 0.55f, 0.12f, 0.48f, 0.59f, 1, 0, 0, 1, 1);
         }
         for (Drill d : g.drills) billboard(o, g.cellX(d.c), d.y - 1.1f, 0.8f, 2, 1, 0.6f, 0.25f, 1, 0, 0, 1, 1);
+        for (var gh : g.ghosts) { float fl = 0.55f + 0.25f * (float) Math.sin(time * 9 + gh.x); billboard(o, gh.x, gh.y, 0.9f, 0.75f, 0.55f * fl, 0.7f * fl, 0.85f * fl, gh.alpha, 0, 0, 1, 1); }
+        for (var v : g.voidLights) billboard(o, v.x, v.y, 0.9f, 1.4f, 0.55f, 0.3f, 0.95f, 1, 0, 0, 1, 1);
+        for (Hazard h : g.hazards) if (h.rising && h.warn <= 0) billboard(o, h.x, h.y, 0.9f, 1.1f, 1, 0.45f, 0.1f, 1, 0, 0, 1, 1);
+        if (g.boss != null && g.boss.def.kind().equals("gate")) billboard(o, g.boss.x, g.boss.y, 1.0f, 2.4f, 0.15f, 0.7f, 0.6f, 1, 0, 0, 1, 1);
+        if (g.boss != null && g.boss.def.kind().equals("lodgers")) for (var sg : g.boss.segs) if (sg.alive) billboard(o, sg.x, sg.y, 0.8f, 1.2f, 0.35f, 0.25f, 0.55f, 1, 0, 0, 1, 1);
         dynGlow.upload(o);
         glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE); glDepthMask(false);
         sprite.use().set("uView", view).set("uProj", proj).set("uMap", 0);
@@ -369,6 +427,11 @@ public final class Renderer {
         for (Panel p : g.panels) if (p.beamT > 0) {
             float x0 = Math.min(p.beamX0, p.beamX1), x1 = Math.max(p.beamX0, p.beamX1), hh = (0.6f + p.beamT * 4) * 0.07f;
             quad(o, x0, p.beamY - hh, x1, p.beamY + hh, 0.6f, 1, 0.16f, 0.1f, 1);
+        }
+        if (g.waterTop > -1e8f) {                                        // flooded rows
+            float yTop = g.waterTop, yBot = g.rigY - 40;
+            quad(o, -HALF, yBot, HALF, yTop, 0.75f, 0.05f, 0.2f, 0.26f, 1);
+            quad(o, -HALF, yTop - 0.06f, HALF, yTop + 0.06f, 0.76f, 0.2f, 0.55f, 0.6f, 1);
         }
         dynBeams.upload(o);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE);

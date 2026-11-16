@@ -19,6 +19,8 @@ public final class SaveData {
 
     public static final class Records {
         public int runs, bestDepth, fission, maxCores, maxBanksRun, wins;
+        /** Bit i set = level i cleared. */
+        public int cleared;
         public long bestScore, totalScrip;
         public boolean everBought;
     }

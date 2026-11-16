@@ -31,14 +31,16 @@ public final class Defs {
     public static final int VIEW_W = 640, VIEW_H = 448;    // PS2 NTSC-ish internal resolution
 
     // ---------------------------------------------------------------- blocks
-    public static final int EMPTY = 0, DIRT = 1, STONE = 2, BASALT = 3, GOLD = 4, AETHER = 5, GAS = 6;
-    public static final int[] HP = {0, 1, 2, 4, 2, 3, 1};
-    public static final boolean[] PIERCE = {false, true, false, false, false, false, false};
-    public static final int[] SCORE = {0, 5, 10, 25, 15, 30, 20};
-    public static final int[][] BASE = {null, {96, 66, 42}, {92, 90, 88}, {44, 42, 54}, {84, 78, 70}, {52, 54, 70}, {58, 72, 46}};
-    public static final int[] VARIANCE = {0, 26, 20, 12, 18, 14, 18};
-    public static final int[] DEBRIS = {0, 0x6e4e32, 0x6a6866, 0x34323e, 0x8a7a50, 0x3c6a7a, 0x4c6a30};
-    public static final int[][] ORE = {null, null, null, null, {255, 196, 60}, {90, 230, 255}, {150, 255, 90}};
+    public static final int EMPTY = 0, DIRT = 1, STONE = 2, BASALT = 3, GOLD = 4, AETHER = 5, GAS = 6, SCULK = 7, TAR = 8, MIRROR = 9;
+    public static final int BLOCK_TYPES = 9;
+    public static final int[] HP = {0, 1, 2, 4, 2, 3, 1, 1, 2, 5};
+    public static final boolean[] PIERCE = {false, true, false, false, false, false, false, false, false, false};
+    public static final int[] SCORE = {0, 5, 10, 25, 15, 30, 20, 15, 15, 40};
+    public static final int[][] BASE = {null, {96, 66, 42}, {92, 90, 88}, {44, 42, 54}, {84, 78, 70}, {52, 54, 70}, {58, 72, 46},
+                                        {16, 46, 56}, {24, 19, 17}, {150, 160, 176}};
+    public static final int[] VARIANCE = {0, 26, 20, 12, 18, 14, 18, 16, 8, 10};
+    public static final int[] DEBRIS = {0, 0x6e4e32, 0x6a6866, 0x34323e, 0x8a7a50, 0x3c6a7a, 0x4c6a30, 0x1c4a52, 0x161210, 0x9aa4b8};
+    public static final int[][] ORE = {null, null, null, null, {255, 196, 60}, {90, 230, 255}, {150, 255, 90}, {40, 230, 210}, null, {220, 235, 255}};
 
     // ---------------------------------------------------------------- power-up pods
     public record PowerUp(String key, char letter, int color, String name, int weight, boolean up) {}
@@ -169,12 +171,76 @@ public final class Defs {
         Map.entry("up_blast", new Afx("Blast on fresh cores", 'x', 1, 110, false)), Map.entry("revive", new Afx("revive once per run at 30% hull", 'x', 1, 220, false)));
 
     // ---------------------------------------------------------------- bosses
-    public record BossDef(int at, String name, int seg, int segHp, int headHp, float[] col, float lunge, boolean last) {}
+    /**
+     * A boss. {@code kind}: wyrm (bores and lunges), gate (frame that spawns blocks), bell (rings if struck while hung),
+     * foundry (kilns vent fire at the rig), lodgers (independent presences that dive), copy (a mirrored rig).
+     * {@code lunge} is the attack interval; segR/headR are hit radii; speed scales movement.
+     */
+    public record BossDef(int at, String name, int seg, int segHp, int headHp, float[] col, float lunge, boolean last,
+                          String kind, float segR, float headR, float speed) {
+        public BossDef(int at, String name, int seg, int segHp, int headHp, float[] col, float lunge, boolean last) {
+            this(at, name, seg, segHp, headHp, col, lunge, last, "wyrm", 0.62f, 0.95f, 1);
+        }
+    }
     public static final List<BossDef> BOSSES = List.of(
         new BossDef(80, "ROCK-WYRM", 6, 3, 8, new float[]{1.0f, 0.85f, 0.7f}, 13, false),
         new BossDef(160, "FUNGAL WYRM", 8, 4, 12, new float[]{0.9f, 0.7f, 1.1f}, 12, false),
         new BossDef(260, "CLOCKWORK WYRM", 10, 5, 16, new float[]{1.1f, 0.85f, 0.5f}, 11, false),
         new BossDef(360, "THE ELDRITCH HEART", 12, 6, 24, new float[]{1.1f, 0.6f, 0.7f}, 10, true));
+
+    // ---------------------------------------------------------------- levels (Gearwright's Hollow pack bible, depth bands 1-7)
+    public enum LevelHazard { DEBRIS, GHOSTS, FLOOD, NOISE, TAR, VOID_LIGHTS, MIRRORS }
+    /** pal[type] overrides the block base colour for that level (null = default). goal: depth to clear when there is no boss. */
+    public record LevelDef(String name, String place, String hazardText, String bossText, String quote, int goal, BossDef boss,
+                           LevelHazard hazard, float speedBonus, float hardBias, float[] fog, float[] amb, float[] tint, int[][] pal) {}
+    private static int[][] pal(int[]... p) { int[][] o = new int[BLOCK_TYPES + 1][]; for (int i = 0; i < p.length; i++) o[i + 1] = p[i]; return o; }
+    public static final List<LevelDef> LEVELS = List.of(
+        new LevelDef("THE SHAFT", "A Guild mining shaft, lit by nothing", "Falling debris", "None: reach the shaft floor at 60m",
+            "If you are reading this, you are the relief. - Sgt. R. Coyle", 60, null, LevelHazard.DEBRIS, 0, -0.05f,
+            new float[]{0.030f, 0.024f, 0.020f}, new float[]{0.10f, 0.09f, 0.08f}, new float[]{1.0f, 0.95f, 0.88f},
+            pal(new int[]{90, 62, 38}, new int[]{96, 94, 90}, new int[]{62, 58, 54}, null, new int[]{92, 74, 52})),
+        new LevelDef("THE GATEHOUSE", "A research gate, built like an old stronghold", "Clerks' ghosts repair broken blocks", "The open gate: a frame that keeps spawning blocks",
+            "The gate does not close as fast as it opens. - A. Venn, Clerk", 72,
+            new BossDef(72, "THE OPEN GATE", 8, 3, 10, new float[]{1.1f, 0.75f, 0.6f}, 4.5f, false, "gate", 0.62f, 1.0f, 1),
+            LevelHazard.GHOSTS, 0.3f, 0.05f, new float[]{0.030f, 0.020f, 0.035f}, new float[]{0.09f, 0.08f, 0.10f}, new float[]{1.0f, 0.92f, 0.88f},
+            pal(new int[]{118, 70, 52}, new int[]{126, 72, 58}, new int[]{58, 60, 66}, new int[]{90, 64, 40}, new int[]{60, 70, 80})),
+        new LevelDef("THE TIDEWELL", "A sea-cooled lab its keeper flooded", "Flooding rows slow the core", "The great one in the flooded halls",
+            "Every gate was built to fix the last one.", 84,
+            new BossDef(84, "THE GREAT ONE", 10, 3, 12, new float[]{0.6f, 1.0f, 1.0f}, 12, false, "wyrm", 0.8f, 1.2f, 0.7f),
+            LevelHazard.FLOOD, 0.5f, 0, new float[]{0.010f, 0.040f, 0.050f}, new float[]{0.05f, 0.09f, 0.11f}, new float[]{0.85f, 1.0f, 1.05f},
+            pal(new int[]{62, 112, 102}, new int[]{72, 122, 114}, new int[]{30, 54, 62}, new int[]{70, 96, 90}, new int[]{52, 70, 92})),
+        new LevelDef("THE LISTENING POST", "A sculk research camp in an open cavern", "Hitting sculk wakes something", "Brandt's bell, which mustn't be rung",
+            "do not ring the bell - N. Brandt", 84,
+            new BossDef(84, "BRANDT'S BELL", 4, 4, 14, new float[]{1.2f, 0.95f, 0.55f}, 0, false, "bell", 0.6f, 1.1f, 1),
+            LevelHazard.NOISE, 0.6f, 0.05f, new float[]{0.010f, 0.020f, 0.030f}, new float[]{0.05f, 0.06f, 0.08f}, new float[]{0.9f, 0.95f, 1.05f},
+            pal(new int[]{170, 140, 72}, new int[]{64, 64, 72}, new int[]{40, 40, 48}, new int[]{70, 66, 64}, new int[]{50, 56, 70})),
+        new LevelDef("BELOW", "The Nether station and its foundry", "Tar sticks the core", "Gale's banked foundry",
+            "Order refused. Kilns banked. - Foreman T. Gale", 96,
+            new BossDef(96, "GALE'S BANKED FOUNDRY", 5, 5, 16, new float[]{1.2f, 0.6f, 0.45f}, 7, false, "foundry", 0.75f, 1.1f, 1),
+            LevelHazard.TAR, 0.8f, 0.08f, new float[]{0.070f, 0.020f, 0.010f}, new float[]{0.12f, 0.05f, 0.04f}, new float[]{1.12f, 0.85f, 0.75f},
+            pal(new int[]{110, 40, 36}, new int[]{92, 44, 40}, new int[]{34, 30, 34}, new int[]{100, 50, 40}, new int[]{70, 48, 60})),
+        new LevelDef("BEYOND", "The End station: frosted frames in the void", "Lights in the void steer the core", "Marsh's lodgers",
+            "We are not drawing power. We are being drawn on. - Dr. I. Marsh", 96,
+            new BossDef(96, "MARSH'S LODGERS", 6, 4, 14, new float[]{0.9f, 0.85f, 1.2f}, 9, false, "lodgers", 0.62f, 0.9f, 1),
+            LevelHazard.VOID_LIGHTS, 0.9f, 0.05f, new float[]{0.030f, 0.010f, 0.050f}, new float[]{0.08f, 0.06f, 0.11f}, new float[]{1.0f, 0.95f, 1.1f},
+            pal(new int[]{200, 196, 140}, new int[]{186, 182, 132}, new int[]{72, 54, 92}, new int[]{180, 176, 130}, new int[]{160, 150, 200})),
+        new LevelDef("THE HOLLOW", "The first gate, in the Guild's namesake valley", "Mirror blocks bounce the core straight back", "Your copy: a second rig that mirrors your moves",
+            "It has been waiting in your shape.", 108,
+            new BossDef(108, "YOUR COPY", 4, 5, 24, new float[]{0.55f, 0.9f, 0.85f}, 0, true, "copy", 0.5f, 0.45f, 1),
+            LevelHazard.MIRRORS, 1.0f, 0.1f, new float[]{0.020f, 0.030f, 0.030f}, new float[]{0.06f, 0.08f, 0.08f}, new float[]{0.95f, 1.0f, 1.0f},
+            pal(new int[]{72, 64, 60}, new int[]{56, 58, 64}, new int[]{30, 32, 36}, new int[]{150, 128, 88}, new int[]{60, 70, 72})));
+
+    /** Loading-screen lines, from the pack's records. */
+    public static final List<String> QUOTES = List.of(
+        "The gate does not close as fast as it opens. - A. Venn, Clerk", "We are not drawing power. We are being drawn on. - Dr. I. Marsh",
+        "Speak quietly. Wear wax.", "Do not drop tools. - Listening Post orders", "do not ring the bell - N. Brandt",
+        "If you are reading this, you are the relief. - Sgt. R. Coyle", "It is not our smoke. - Foreman T. Gale", "Order refused. Kilns banked. - Foreman T. Gale",
+        "The black gets into ink. - P. Sallow, Archivist", "I keep a light on in case anyone comes asking. - the Penitent", "I will not build a frame. - W. Tamsin",
+        "The staff call them lodgers. I have asked them to stop. - M. Ashdown, Clerk", "The furnaces burn hotter when the crew is angry. - Master E. Harrow",
+        "The well water tastes of pennies since. - Edda, unsent", "Each night the bell in the Hollow tolls twelve, and nobody rings it. - unsigned sermon",
+        "It has been waiting in your shape.", "What the Foundry leaves, only the Foundry's own can gather.",
+        "An escapement lets the world run without asking anything of it.", "Every gate was built to fix the last one.",
+        "Nobody below a master was allowed to see a whole frame.", "The draught is not heat, though it comes with heat.");
 
     // ---------------------------------------------------------------- biomes (atmosphere only)
     public record Biome(int at, String name, float[] fog, float[] amb, float[] tint) {}

@@ -15,7 +15,7 @@ import static net.kragnoth.abyssal.core.Mth.*;
  * methods, and read the public fields to draw. Nothing in here touches OpenGL or audio.
  */
 public final class Game {
-    public enum State { TITLE, PLAY, PAUSED, JUNCTION, SHOP, FOUNDRY, OVER, VICTORY }
+    public enum State { TITLE, LEVELS, PLAY, PAUSED, JUNCTION, SHOP, FOUNDRY, OVER, VICTORY }
 
     public final Fx fx;
     private final SaveStore store;
@@ -68,6 +68,15 @@ public final class Game {
     private float hazT = 8;
     private final List<Timer> timers = new ArrayList<>();
     public Stats stats = new Stats();
+    // ---- levels: -1 = Classic Descent, 0..6 = the pack's depth bands
+    public int level = -1;
+    public LevelDef lvl;
+    public boolean unlockAll;
+    public float noise, waterTop = -1e9f;
+    public final List<Ghost> ghosts = new ArrayList<>();
+    public final List<VoidLight> voidLights = new ArrayList<>();
+    private float ghostT = 5;
+    private State levelsReturn = State.TITLE;
     public LastRun lastRun;
     public Bot bot;
 
@@ -96,7 +105,7 @@ public final class Game {
     private void msg(String t, int col, float dur) { fx.message(t, col, dur); }
     private void later(Runnable fn, float sec) { timers.add(new Timer(fn, new float[]{sec})); }
 
-    public float curSpeed() { return (float) (Math.min(10.5f + R * 0.03f, 18f) * (1 - 0.05 * mr("gov")) * Math.max(0.6, 1 + A("speed"))); }
+    public float curSpeed() { return (float) (Math.min(10.5f + R * 0.03f + (lvl != null ? lvl.speedBonus() : 0), 18f) * (1 - 0.05 * mr("gov")) * Math.max(0.6, 1 + A("speed"))); }
     public int maxHull() { return (int) Math.max(30, Math.round((100 + 20 * lv("armor") + 15 * mr("hull") + A("hull")) * (1 + A("hullPct")))); }
     public float basePadW() { return (float) Math.max(1.6, PW + 0.4 * lv("width") + 0.25 * mr("span") + A("padW")); }
     public float pressureMax() { return (float) Math.max(8, PRESSURE_TIME + 8 * lv("clamps") + A("clamp")); }
@@ -105,6 +114,10 @@ public final class Game {
     public boolean catching() { return lv("catch") > 0 || catchT > 0; }
     private float holdLimit() { return lv("catch") >= 2 ? Float.POSITIVE_INFINITY : 4; }
     public int depthM() { return Math.round(-rigY * M_PER_ROW); }
+    public Atmosphere atmosphere() { return lvl != null ? new Atmosphere(lvl.name(), lvl.fog(), lvl.amb(), lvl.tint()) : Defs.atmosphereAt(depthM()); }
+    public boolean levelUnlocked(int i) { return unlockAll || i <= 0 || (save.rec.cleared & (1 << (i - 1))) != 0; }
+    public boolean levelCleared(int i) { return (save.rec.cleared & (1 << i)) != 0; }
+    private boolean hz(LevelHazard h) { return lvl != null && lvl.hazard() == h; }
     public int magnetLevel() { return (int) Math.max(0, lv("magnet") + mr("lode") + A("magnet") + (magT > 0 ? 3 : 0)); }
 
     public long shopCost(ShopItem it) { return Math.round(it.base() * Math.pow(it.mul(), lv(it.key())) * Math.max(0.5, 1 + A("shopCost"))); }
@@ -175,11 +188,14 @@ public final class Game {
             for (int c = 0; c < COLS; c++) {
                 double cave = fbm(c * 0.22 + 3.1, r * 0.16, seed);
                 if (r > firstRock + 3 && cave > 0.64) continue;                       // cavern pockets
-                double h = fbm(c * 0.3 + 40, r * 0.22 + 11, seed) + Math.min(r / 260.0, 0.32) - Math.max(0, 14 - r) * 0.02;
+                double h = fbm(c * 0.3 + 40, r * 0.22 + 11, seed) + Math.min(r / 260.0, 0.32) - Math.max(0, 14 - r) * 0.02 + (lvl != null ? lvl.hardBias() : 0);
                 int ty = h < 0.44 ? DIRT : h < 0.7 ? STONE : BASALT;
                 if (fbm(c * 0.45 + 90, r * 0.45 + 70, seed) > 0.69) ty = GOLD;
                 if (r > 12 && fbm(c * 0.6 + 200, r * 0.6 + 33, seed) > 0.74) ty = AETHER;
                 if (r > 10 && hash(c * 3 + 1, r * 7 + 5, seed) < 0.016) ty = GAS;
+                if (hz(LevelHazard.NOISE) && r > firstRock + 1 && ty != GOLD && ty != AETHER && fbm(c * 0.5 + 300, r * 0.5 + 11, seed) > 0.62) ty = SCULK;
+                if (hz(LevelHazard.TAR) && r > firstRock + 1 && ty != GOLD && fbm(c * 0.55 + 400, r * 0.4 + 5, seed) > 0.64) ty = TAR;
+                if (hz(LevelHazard.MIRRORS) && r > firstRock + 2 && hash(c * 11 + 3, r * 5 + 1, seed) < 0.07) ty = MIRROR;
                 row.t[c] = ty; row.hp[c] = HP[ty]; row.maxHp[c] = HP[ty]; row.solid0++;
             }
         }
@@ -192,7 +208,7 @@ public final class Game {
     public int cell(int r, int c) { Row row = rows.get(r); return row == null || c < 0 || c >= COLS ? 0 : row.t[c]; }
     private void placeBlock(int r, int c, int ty) {
         Row row = rows.get(r);
-        if (row == null || row.t[c] != 0 || (boss != null && Math.hypot(cellX(c) - boss.x, -r - boss.y) < 1.6)) return;
+        if (row == null || c < 0 || c >= COLS || row.t[c] != 0 || bossNear(cellX(c), -r, 1.3f)) return;
         row.t[c] = ty; row.hp[c] = HP[ty]; row.maxHp[c] = HP[ty]; row.version++;
         fx.debris(cellX(c), -r, DEBRIS[ty], 3);
     }
@@ -312,6 +328,7 @@ public final class Game {
     }
 
     private void stepBall(Ball b, float dt) {
+        if (b.stuck > 0) { b.stuck -= dt; return; }                    // held by tar
         b.x += b.vx * dt; b.y += b.vy * dt;
         if (b.x - BR < -HALF) { b.x = -HALF + BR; b.vx = Math.abs(b.vx); fx.sound(Fx.Sfx.WALL, 0); }
         if (b.x + BR > HALF) { b.x = HALF - BR; b.vx = -Math.abs(b.vx); fx.sound(Fx.Sfx.WALL, 0); }
@@ -354,6 +371,8 @@ public final class Game {
         }
         if (bpen < 0) return;
         int ty = cell(br, bc);
+        float ovx = b.vx, ovy = b.vy;
+        if (hz(LevelHazard.NOISE)) noise += ty == SCULK ? 14 : 2;
         int dmg = 1 + b.up("str") + (rnd() < 0.1 * mr("might") ? 1 : 0) + (b.evo("lance") ? 2 : 0) + (b.slam > 0 ? 2 : 0);
         if (b.slam > 0) { b.slam = 0; fx.burst(b.x, b.y, 24, 1, 0.8f, 0.4f, 7, 0.4f); shake = Math.max(shake, 0.25f); }
         combo++; bestCombo = Math.max(bestCombo, combo);
@@ -376,6 +395,11 @@ public final class Game {
         float minV = 0.28f * s;
         if (Math.abs(b.vy) < minV) { b.vy = (b.vy < 0 ? -1 : 1) * minV; float k = s / (float) Math.hypot(b.vx, b.vy); b.vx *= k; b.vy *= k; }
         if (Math.abs(b.vx) < 0.12f * s) { b.vx = (b.vx < 0 || (b.vx == 0 && rnd() < 0.5) ? -1 : 1) * 0.12f * s; float k = s / (float) Math.hypot(b.vx, b.vy); b.vx *= k; b.vy *= k; }
+        if (ty == MIRROR) {                                            // mirrors send the core straight back
+            b.vx = -ovx; b.vy = -ovy; if (Math.abs(b.vx) < 0.12f * s) b.vx = (b.vx < 0 ? -1 : 1) * 0.12f * s;
+            fx.burst(b.x, b.y, 12, 0.85f, 0.95f, 1, 5, 0.3f); fx.sound(Fx.Sfx.CLANG, 0);
+        }
+        if (ty == TAR && !killed) { b.stuck = 0.55f; fx.burst(b.x, b.y, 8, 0.15f, 0.12f, 0.1f, 2, 0.4f); fx.sound(Fx.Sfx.CATCH, 0); }
     }
 
     /** On-hit effects the core carries: Blast splash and Arc lightning (plus their evolutions). */
@@ -536,11 +560,12 @@ public final class Game {
     // ================================================================ rockfall (score-gated)
     private void updateHazards(float dt) {
         for (Timer tm : new ArrayList<>(timers)) { tm.t[0] -= dt; if (tm.t[0] <= 0) { timers.remove(tm); tm.fn.run(); } }
-        if (score >= ROCK_SCORE && dropping == null) {
-            if (!rockAnnounced) { rockAnnounced = true; hazT = 4; msg("THE SHAFT GROANS - ROCKFALL", 0xff5a3c, 1.6f); }
+        boolean rocks = lvl == null ? score >= ROCK_SCORE : hz(LevelHazard.DEBRIS) && R >= 10;
+        if (rocks && dropping == null) {
+            if (!rockAnnounced) { rockAnnounced = true; hazT = 4; msg(lvl == null ? "THE SHAFT GROANS - ROCKFALL" : "LOOSE DEBRIS ABOVE", 0xff5a3c, 1.6f); }
             hazT -= dt;
             if (hazT <= 0) {
-                hazT = (float) (Math.max(3, 15 - (score - ROCK_SCORE) / 8000.0) * rnd(0.7f, 1.3f) / Math.max(0.2, 1 + A("rock")));
+                hazT = (float) ((lvl == null ? Math.max(3, 15 - (score - ROCK_SCORE) / 8000.0) : Math.max(6, 13 - R * 0.05)) * rnd(0.7f, 1.3f) / Math.max(0.2, 1 + A("rock")));
                 Hazard h = new Hazard();
                 h.x = rnd(-HALF + 0.6f, HALF - 0.6f);
                 h.warn = (float) (Math.max(0.75, 1.4 - R * 0.0025) * Math.max(0.4, 1 + A("warn")));
@@ -550,7 +575,20 @@ public final class Game {
         for (Iterator<Hazard> it = hazards.iterator(); it.hasNext(); ) {
             Hazard h = it.next();
             h.age += dt;
-            if (h.warn > 0) { h.warn -= dt; if (h.warn <= 0) { h.y = rigY + 9; h.falling = true; } continue; }
+            if (h.warn > 0) { h.warn -= dt; if (h.warn <= 0) { if (h.rising) { h.y = h.fromY; } else { h.y = rigY + 9; h.falling = true; } } continue; }
+            if (h.rising) {                                               // foundry vent: fire column climbs to the rig
+                h.y += 30 * dt;
+                if (rnd() < 0.9) fx.burst(h.x, h.y, 4, 1, 0.5f, 0.15f, 3, 0.3f);
+                if (h.y >= paddleY - 0.6f) {
+                    it.remove();
+                    if (Math.abs(h.x - px) < padW / 2 + 0.3f) {
+                        fx.burst(h.x, paddleY - 0.5f, 40, 1, 0.5f, 0.15f, 8, 0.5f); shake = Math.max(shake, 0.7f); hullFlash = 0.7f;
+                        fx.sound(Fx.Sfx.HULL, 0); msg("THE KILN VENTS", 0xff5a3c, 0.7f);
+                        if (damageHull(10, "foundry")) return;
+                    }
+                }
+                continue;
+            }
             h.vy += 45 * dt; h.y -= h.vy * dt;
             if (!h.passed && h.y <= paddleY + 0.6f) {
                 h.passed = true;
@@ -558,7 +596,7 @@ public final class Game {
                     it.remove();
                     fx.burst(h.x, paddleY + 0.6f, 30, 0.8f, 0.7f, 0.6f, 7, 0.5f); fx.debris(h.x, paddleY + 0.5f, 0x5a5048, 8);
                     stats.stalHits++; shake = Math.max(shake, 0.7f); hullFlash = 0.7f; fx.sound(Fx.Sfx.HULL, 0); msg("ROCKFALL", 0xff5a3c, 0.7f);
-                    if (damageHull(12, "boulder")) return;
+                    if (damageHull(lvl == null ? 12 : 6, "boulder")) return;
                     continue;
                 }
             }
@@ -572,10 +610,27 @@ public final class Game {
     }
 
     // ================================================================ wyrm bosses
-    private int nextBossDepth() { return endless ? endlessNext : bossIdx < BOSSES.size() ? BOSSES.get(bossIdx).at() : Integer.MAX_VALUE; }
+    private int nextBossDepth() {
+        if (endless) return endlessNext;
+        if (lvl != null) return lvl.boss() != null && bossIdx == 0 ? lvl.boss().at() : Integer.MAX_VALUE;
+        return bossIdx < BOSSES.size() ? BOSSES.get(bossIdx).at() : Integer.MAX_VALUE;
+    }
+    /** True if (x,y) is within r of any live part of the boss. */
+    private boolean bossNear(float x, float y, float r) {
+        if (boss == null) return false;
+        if (Math.hypot(x - boss.x, y - boss.y) < r + boss.def.headR()) return true;
+        for (Segment s : boss.segs) if (s.alive && Math.hypot(x - s.x, y - s.y) < r + boss.def.segR()) return true;
+        return false;
+    }
+    private void clearArea(float x, float y, float rad) {
+        int r0 = Math.round(-y);
+        for (int r = r0 - (int) rad - 1; r <= r0 + (int) rad + 1; r++) for (int c = 0; c < COLS; c++)
+            if (cell(r, c) != 0 && Math.hypot(cellX(c) - x, -r - y) < rad) destroyBlock(r, c, false, null);
+    }
     private void spawnBoss() {
-        int lap = endless ? (endlessNext - 360) / 120 : 0;
-        BossDef def = endless ? BOSSES.get(Math.floorMod(lap - 1, BOSSES.size())) : BOSSES.get(bossIdx);
+        int lap; BossDef def;
+        if (lvl != null) { def = lvl.boss(); lap = endless ? Math.max(1, (endlessNext - def.at()) / 60) : 0; }
+        else { lap = endless ? (endlessNext - 360) / 120 : 0; def = endless ? BOSSES.get(Math.floorMod(lap - 1, BOSSES.size())) : BOSSES.get(bossIdx); }
         float sc = 1 + lap * 0.5f;
         Boss B = new Boss();
         B.def = def; B.sc = sc; B.t = rnd(0, 6);
@@ -585,14 +640,26 @@ public final class Game {
         B.lungeT = def.lunge() * 0.7f;
         for (int i = 0; i < def.seg() * 8 + 10; i++) B.trail.addLast(new float[]{B.x, B.y - i * 0.1f});
         boss = B; pressureT = -1;
-        msg(def.name() + " AWAKENS", 0xff5a3c, 2); fx.sound(Fx.Sfx.BOOM, 0); fx.sound(Fx.Sfx.GROWL, 0); shake = Math.max(shake, 1);
+        float base = -(R + 10);
+        for (int i = 0; i < B.segs.size(); i++) B.segs.get(i).t0 = i * 1.7f;
+        switch (def.kind()) {
+            case "gate" -> { B.x = 0; B.y = base; clearArea(0, base, 3.4f); }
+            case "bell" -> { B.x = 0; B.y = base + 1; clearArea(0, base + 2, 3.4f); }
+            case "foundry" -> { B.x = 0; B.y = base - 1.3f; for (int i = 0; i < def.seg(); i++) clearArea(-5 + i * 10f / Math.max(1, def.seg() - 1), base + 0.6f, 1.5f); clearArea(0, base - 1.3f, 1.8f); }
+            case "copy" -> { B.x = -px; B.y = base + 2; clearArea(0, base + 2, 2.6f); for (float x = -HALF + 1; x < HALF; x += 2) clearArea(x, base + 2, 1.5f); }
+            case "lodgers" -> { B.x = 0; B.y = base; }
+            default -> {}
+        }
+        String verb = switch (def.kind()) { case "gate" -> " STANDS OPEN"; case "bell" -> " HANGS ABOVE THE DARK"; case "foundry" -> " STIRS"; case "copy" -> " IS WAITING"; case "lodgers" -> " ARRIVE"; default -> " AWAKENS"; };
+        msg(def.name() + verb, 0xff5a3c, 2); fx.sound(Fx.Sfx.BOOM, 0); fx.sound(Fx.Sfx.GROWL, 0); shake = Math.max(shake, 1);
         for (int i = 0; i < 2; i++) { final int k = i; later(() -> spawnLoot(rnd(-4, 4), paddleY - 7, "pu", k == 0 ? "split" : rollPU()), 1 + i); }
     }
     private void updateBoss(float dt) {
         Boss B = boss;
         if (B == null) return;
         B.t += dt; B.age += dt; B.hitT = Math.max(0, B.hitT - dt);
-        float base = -(R + 10), lim = HALF - 1.2f, tx, ty, sp = (4.2f + B.sc * 0.4f) * (B.armored() ? 1 : 0.65f);
+        if (!B.def.kind().equals("wyrm")) { updateOtherBoss(B, dt); return; }
+        float base = -(R + 10), lim = HALF - 1.2f, tx, ty, sp = (4.2f + B.sc * 0.4f) * (B.armored() ? 1 : 0.65f) * B.def.speed();
         switch (B.phase) {
             case "rise" -> { tx = 0; ty = base; if (B.y > base - 1) B.phase = "roam"; sp = 7; }
             case "roam" -> {
@@ -639,12 +706,161 @@ public final class Game {
             }
         }
     }
+    private void ringBell() {
+        stats.rings++; noise = 100;
+        fx.burst(boss.x, boss.y, 30, 1, 0.85f, 0.4f, 7, 0.5f); fx.sound(Fx.Sfx.CLANG, 0);
+        msg("THE BELL RINGS", 0xff5a3c, 1.0f);
+    }
+    /** Gate, bell, foundry, lodgers and copy. */
+    private void updateOtherBoss(Boss B, float dt) {
+        float base = -(R + 10), lim = HALF - 1.2f;
+        String kind = B.def.kind();
+        B.rubbleT -= dt;
+        switch (kind) {
+            case "gate" -> {                                            // the open gate: a frame that keeps spawning blocks
+                B.x = 0; B.y = base + (float) Math.sin(B.t * 1.3) * 0.15f;
+                float[][] P = {{-2, 1.6f}, {0, 1.9f}, {2, 1.6f}, {2.4f, 0}, {2, -1.6f}, {0, -1.9f}, {-2, -1.6f}, {-2.4f, 0}};
+                for (int i = 0; i < B.segs.size(); i++) { Segment s = B.segs.get(i); s.x = B.x + P[i % 8][0]; s.y = B.y + P[i % 8][1]; s.hitT = Math.max(0, s.hitT - dt); }
+                B.lungeT -= dt;
+                if (B.lungeT <= 0) {
+                    B.lungeT = B.def.lunge() / B.sc;
+                    for (int i = 0; i < 5; i++) placeBlock(R + 6 + rng.nextInt(12), rng.nextInt(COLS), rnd() < 0.2f ? GOLD : STONE);
+                    fx.flash(B.x, B.y, 0.4f, 1.6f, 1.4f, 9, 0.4f); fx.sound(Fx.Sfx.GROWL, 0);
+                }
+            }
+            case "bell" -> {                                            // Brandt's bell: break its supports, never strike it while it hangs
+                float ax = 0, ay = base + 1;
+                float[][] P = {{-1.9f, 2.3f}, {1.9f, 2.3f}, {-0.9f, 2.9f}, {0.9f, 2.9f}};
+                for (int i = 0; i < B.segs.size(); i++) { Segment s = B.segs.get(i); s.x = ax + P[i % 4][0]; s.y = ay + P[i % 4][1]; s.hitT = Math.max(0, s.hitT - dt); }
+                if (B.armored()) { B.x = (float) Math.sin(B.t * 0.9) * 1.2f; B.y = ay; }
+                else { B.dropT += dt; B.x = lerp(B.x, 0, dt); B.y = ay - Math.min(2.5f, B.dropT * 2); }
+            }
+            case "foundry" -> {                                         // Gale's banked foundry: kilns vent fire at the rig
+                int n = B.segs.size();
+                for (int i = 0; i < n; i++) { Segment s = B.segs.get(i); s.x = -5 + i * 10f / Math.max(1, n - 1); s.y = base + 0.6f; s.hitT = Math.max(0, s.hitT - dt); }
+                B.x = 0; B.y = base - 1.3f + (float) Math.sin(B.t * 2) * 0.1f;
+                B.lungeT -= dt;
+                if (B.lungeT <= 0) {
+                    B.lungeT = B.def.lunge() / B.sc * rnd(0.8f, 1.2f);
+                    List<Segment> alive = B.segs.stream().filter(s -> s.alive).toList();
+                    float vx = alive.isEmpty() ? B.x : alive.get(rng.nextInt(alive.size())).x;
+                    Hazard h = new Hazard(); h.x = vx; h.rising = true; h.fromY = base + 1.2f; h.warn = 1.3f;
+                    hazards.add(h); fx.sound(Fx.Sfx.WARN, 0);
+                }
+            }
+            case "lodgers" -> {                                         // Marsh's lodgers: presences that wander and dive at the rig
+                for (Segment s : B.segs) {
+                    if (!s.alive) continue;
+                    s.hitT = Math.max(0, s.hitT - dt);
+                    float tx, ty, sp;
+                    if (s.lunging) {
+                        tx = s.lx; ty = paddleY - 0.4f; sp = 9; s.lungeT += dt;
+                        if (Math.abs(s.x - px) < padW / 2 + 0.4f && s.y > paddleY - 1.0f) {
+                            s.lunging = false; shake = 0.8f; hullFlash = 0.6f; fx.sound(Fx.Sfx.HULL, 0); msg("A LODGER PASSES THROUGH YOU", 0xff5a3c, 0.9f);
+                            if (damageHull(8, "lodgers")) return;
+                        }
+                        if (s.lungeT > 1.4f || s.y > paddleY - 0.5f) s.lunging = false;
+                    } else { tx = (float) Math.sin(B.t * 0.5 + s.t0) * lim; ty = base + (float) Math.sin(B.t * 0.8 + s.t0) * 3; sp = 3.5f; }
+                    float dx = tx - s.x, dy = ty - s.y, d = (float) Math.hypot(dx, dy);
+                    if (d > 0.01f) { float st = Math.min(d, sp * dt); s.x += dx / d * st; s.y += dy / d * st; }
+                }
+                if (!B.armored()) { B.x = lerp(B.x, (float) Math.sin(B.t * 0.6) * lim * 0.6f, dt); B.y = lerp(B.y, base + (float) Math.sin(B.t) * 2, dt); }
+                B.lungeT -= dt;
+                if (B.lungeT <= 0 && B.armored()) {
+                    B.lungeT = B.def.lunge() * rnd(0.8f, 1.2f);
+                    List<Segment> idle = B.segs.stream().filter(s -> s.alive && !s.lunging).toList();
+                    if (!idle.isEmpty()) { Segment s = idle.get(rng.nextInt(idle.size())); s.lunging = true; s.lx = px; s.lungeT = 0; fx.sound(Fx.Sfx.GROWL, 0); }
+                }
+            }
+            case "copy" -> {                                            // your copy: mirrors your moves from below
+                float target = clamp(-px, -lim, lim);
+                B.x += clamp(target - B.x, -7 * dt, 7 * dt);
+                B.y = base + 2 + (float) Math.sin(B.t) * 0.2f;
+                int n = B.segs.size();
+                for (int i = 0; i < n; i++) {
+                    Segment s = B.segs.get(i); double a = B.t * 1.4 + i * Math.PI * 2 / n;
+                    s.x = B.x + (float) Math.cos(a) * 2.0f; s.y = B.y + (float) Math.sin(a) * 1.15f; s.hitT = Math.max(0, s.hitT - dt);
+                }
+            }
+            default -> {}
+        }
+        if (B.rubbleT <= 0 && !kind.equals("gate")) { B.rubbleT = 1.6f; for (int i = 0; i < 3; i++) placeBlock(R + 6 + rng.nextInt(10), rng.nextInt(COLS), rnd() < 0.15 ? GOLD : STONE); }
+    }
+
+    // ================================================================ level hazards
+    private void updateLevelHazards(float dt) {
+        if (lvl == null) return;
+        switch (lvl.hazard()) {
+            case GHOSTS -> updateGhosts(dt);
+            case FLOOD -> waterTop = paddleY - 4.5f - (float) (0.5 + 0.5 * Math.sin(time * 0.25)) * 7f;
+            case NOISE -> {
+                noise = Math.max(0, noise - 3 * dt);
+                if (noise >= 100) {                                       // something huge hears the gates
+                    noise = 0; shake = 1; hullFlash = 0.8f;
+                    fx.flash(px, paddleY - 4, 0.4f, 1.6f, 1.5f, 14, 0.5f); fx.sound(Fx.Sfx.GROWL, 0); fx.sound(Fx.Sfx.HULL, 0);
+                    msg("IT HEARS YOU", 0x40e6d2, 1.4f);
+                    for (Ball b : balls) if (!b.docked) b.vy = -Math.abs(b.vy);
+                    damageHull(8, "listening");
+                }
+            }
+            case VOID_LIGHTS -> {
+                for (VoidLight v : voidLights) {
+                    v.x = (float) Math.sin(time * 0.37 + v.t0 * 2) * (HALF - 1.5f);
+                    v.y = paddleY - 7 + (float) Math.sin(time * 0.53 + v.t0) * 4;
+                    for (Ball b : balls) {
+                        if (b.docked) continue;
+                        float dx = v.x - b.x, dy = v.y - b.y, d = (float) Math.hypot(dx, dy);
+                        if (d < 4.5f && d > 0.05f) { float a = 16 * (1 - d / 4.5f); b.vx += dx / d * a * dt; b.vy += dy / d * a * dt; }
+                    }
+                }
+            }
+            default -> {}
+        }
+    }
+    private void updateGhosts(float dt) {
+        ghostT -= dt;
+        if (ghostT <= 0 && ghosts.size() < 3 && dropping == null) {
+            ghostT = rnd(5, 8);
+            Ghost gh = new Ghost(); gh.x = rnd(-HALF + 1, HALF - 1); gh.y = paddleY - 3;
+            if (pickGhostTarget(gh)) { ghosts.add(gh); fx.sound(Fx.Sfx.WARN, 0); }
+        }
+        for (Iterator<Ghost> it = ghosts.iterator(); it.hasNext(); ) {
+            Ghost gh = it.next();
+            gh.alpha = Math.min(1, gh.alpha + dt);
+            for (Ball b : balls) if (!b.docked && Math.hypot(b.x - gh.x, b.y - gh.y) < 0.6) {       // a core dispels it
+                it.remove(); score += 50; stats.ghostsDispelled++; stats.lastProg = stats.t;
+                fx.burst(gh.x, gh.y, 24, 0.75f, 0.9f, 1, 5, 0.6f); fx.sound(Fx.Sfx.ORE_HI, 0);
+                if (rnd() < 0.3) spawnLoot(gh.x, gh.y, "gold", null);
+                gh = null; break;
+            }
+            if (gh == null) continue;
+            float tx = cellX(gh.tc), ty = -gh.tr, dx = tx - gh.x, dy = ty - gh.y, d = (float) Math.hypot(dx, dy);
+            if (d > 0.15f) { float st = Math.min(d, 2.2f * dt); gh.x += dx / d * st; gh.y += dy / d * st; continue; }
+            gh.work += dt;
+            if (gh.work > 1.5f) {
+                gh.work = 0;
+                if (cell(gh.tr, gh.tc) == 0) { placeBlock(gh.tr, gh.tc, STONE); fx.burst(tx, ty, 10, 0.7f, 0.85f, 1, 2, 0.5f); }
+                if (!pickGhostTarget(gh)) it.remove();
+            }
+        }
+    }
+    private boolean pickGhostTarget(Ghost gh) {
+        for (int k = 0; k < 24; k++) {
+            int r = R + ZONE_OFF + rng.nextInt(10), c = rng.nextInt(COLS);
+            Row row = rows.get(r);
+            if (row != null && row.t[c] == 0 && !bossNear(cellX(c), -r, 1.3f)) { gh.tr = r; gh.tc = c; return true; }
+        }
+        return false;
+    }
+
     /** Core vs boss: returns true if the core bounced off a part of it. */
     private boolean hitBoss(Ball b) {
         Boss B = boss;
         List<Object[]> parts = new ArrayList<>();
-        parts.add(new Object[]{B.x, B.y, 0.95f, null});
-        for (Segment s : B.segs) if (s.alive) parts.add(new Object[]{s.x, s.y, 0.62f, s});
+        String kind = B.def.kind();
+        if (kind.equals("copy")) for (float o : new float[]{-1, 0, 1}) parts.add(new Object[]{B.x + o * padW / 3, B.y, B.def.headR(), null});
+        else if (!kind.equals("lodgers") || !B.armored()) parts.add(new Object[]{B.x, B.y, B.def.headR(), null});
+        for (Segment s : B.segs) if (s.alive) parts.add(new Object[]{s.x, s.y, B.def.segR(), s});
         for (Object[] p : parts) {
             float pxp = (float) p[0], pyp = (float) p[1], pr = (float) p[2];
             float dx = b.x - pxp, dy = b.y - pyp, d = (float) Math.hypot(dx, dy);
@@ -655,7 +871,9 @@ public final class Game {
             int dmg = 1 + b.up("str") + (b.evo("lance") ? 2 : 0) + (b.slam > 0 ? 2 : 0); b.slam = 0;
             combo++; bestCombo = Math.max(bestCombo, combo); stats.lastProg = stats.t;
             if (p[3] == null) {
+                if (B.armored() && kind.equals("bell")) { ringBell(); return true; }
                 if (B.armored()) { fx.burst(b.x, b.y, 8, 0.8f, 0.8f, 0.9f, 4, 0.25f); fx.sound(Fx.Sfx.CLANG, 0); return true; }
+                if (kind.equals("copy")) b.boost = Math.max(b.boost, 1.4f);       // it bats the core back hard
                 B.hp -= dmg; B.hitT = 0.15f; fx.burst(b.x, b.y, 16, 1, 0.4f, 0.3f, 6, 0.35f); fx.sound(Fx.Sfx.HIT_HARD, combo);
                 if (B.hp <= 0) killBoss();
             } else {
@@ -664,7 +882,9 @@ public final class Game {
                 if (s.hp <= 0) {
                     s.alive = false; fx.debris(s.x, s.y, 0x5a4a40, 10); fx.sound(Fx.Sfx.CRUNCH, 0);
                     spawnLoot(s.x, s.y, "gold", null);
-                    if (!B.armored()) msg("ARMOR BROKEN - STRIKE THE HEAD", 0xffc43c, 1.3f);
+                    if (!B.armored()) msg(switch (kind) {
+                        case "gate" -> "FRAME BROKEN - STRIKE THE GATE"; case "bell" -> "THE BELL FALLS - STRIKE IT"; case "foundry" -> "KILNS DOWN - STRIKE THE HEART";
+                        case "lodgers" -> "THE LAST LODGER SHOWS ITSELF"; case "copy" -> "ITS MIRRORS ARE GONE - STRIKE IT"; default -> "ARMOR BROKEN - STRIKE THE HEAD"; }, 0xffc43c, 1.3f);
                 }
             }
             return true;
@@ -678,7 +898,8 @@ public final class Game {
         for (int i = 0; i < 10; i++) spawnLoot(B.x + rnd(-1, 1), B.y + rnd(-1, 1), "gold", null);
         for (int i = 0; i < 3; i++) spawnLoot(B.x, B.y, "aether", null);
         for (int i = 0; i < 2; i++) spawnLoot(B.x, B.y, "pu", rollPU());
-        if (endless) endlessNext += 120; else bossIdx++;
+        if (endless) endlessNext += lvl != null ? 60 : 120; else bossIdx++;
+        if (lvl != null && !endless) { won = true; later(this::openVictory, 2.2f); msg(B.def.name() + " FALLS", 0x7affd4, 2.2f); return; }
         if (B.def.last() && !endless) { won = true; later(this::openVictory, 2.2f); msg("THE HEART IS BROKEN", 0x7affd4, 2.2f); return; }
         msg(B.def.name() + " SLAIN - PATH CLEAR", 0x9cff6a, 1.6f);
         pressureT = pressureMax();
@@ -689,7 +910,7 @@ public final class Game {
     }
     public void closeVictory(boolean goEndless) {
         if (state != State.VICTORY) return;
-        if (goEndless) { endless = true; endlessNext = R * M_PER_ROW + 120; state = State.PLAY; pressureT = pressureMax(); msg("ENDLESS DESCENT", 0xff9a3c, 1.4f); }
+        if (goEndless) { endless = true; endlessNext = R * M_PER_ROW + (lvl != null ? 60 : 120); state = State.PLAY; pressureT = pressureMax(); msg("ENDLESS DESCENT", 0xff9a3c, 1.4f); }
         else { bankedTotal += cargo; banked += cargo; cargo = 0; state = State.PLAY; gameOver(true); }
     }
 
@@ -737,6 +958,9 @@ public final class Game {
             paddleY = rigY - drop;
             ensureRows(); dockNew(carry);
             if (boss == null && R * M_PER_ROW >= nextBossDepth()) spawnBoss();
+            if (lvl != null && lvl.boss() == null && !endless && !won && R * M_PER_ROW >= lvl.goal()) {
+                won = true; msg("THE SHAFT FLOOR", 0x7affd4, 2); later(this::openVictory, 1.2f);
+            }
             if (R % JUNCTION_EVERY == 0) openJunction();
         }
     }
@@ -771,6 +995,7 @@ public final class Game {
         rc.fission += stats.pods.getOrDefault("split", 0); rc.maxCores = Math.max(rc.maxCores, stats.maxCores); rc.maxBanksRun = Math.max(rc.maxBanksRun, banksRun);
         List<String> fresh = new ArrayList<>();
         for (MetaItem m : META) if (metaUnlocked(m) && !before.contains(m)) fresh.add(m.name());
+        if (lvl != null && (win || won)) save.rec.cleared |= 1 << level;
         lastRun = new LastRun(win, depth, earned, parts, fresh, stats.t);
         if (save.pending == null) save.pending = drawCard();
         persist();
@@ -867,6 +1092,8 @@ public final class Game {
         bossIdx = 0; endless = false; endlessNext = 0; bossKills = 0; won = false; rockAnnounced = false; hazT = 8;
         stats = new Stats(); banksRun = 0; reviveUsed = false; offers.clear(); banished.clear();
         rerollsFree = mr("reroll"); banishLeft = mr("banish"); rerollPaid = 0;
+        noise = 0; waterTop = -1e9f; ghosts.clear(); voidLights.clear(); ghostT = 5;
+        if (hz(LevelHazard.VOID_LIGHTS)) for (int i = 0; i < 3; i++) { VoidLight v = new VoidLight(); v.t0 = i * 2.1f; voidLights.add(v); }
         syncPanels();
         computeArc();
         banked = Math.max(0, 100L * mr("stake") + Math.round(A("credits")));
@@ -878,11 +1105,21 @@ public final class Game {
         for (int i = 0; i < extra; i++) dockNew(starterUp());
     }
     /** Start a descent. Refuses (returns false) while a tarot card is still waiting to be resolved. */
-    public boolean start() {
+    public boolean start() { return start(level); }
+    /** Start level {@code lv} (-1 = Classic Descent). Refuses while a tarot card is unresolved or the level is locked. */
+    public boolean start(int lv) {
         if (save.pending != null) { state = State.OVER; return false; }
-        reset(); state = State.PLAY; msg("DESCEND", 0xff9a3c, 1);
+        if (lv >= LEVELS.size() || (lv >= 0 && !levelUnlocked(lv))) { fx.sound(Fx.Sfx.DENY, 0); return false; }
+        level = lv; lvl = lv >= 0 ? LEVELS.get(lv) : null;
+        reset(); state = State.PLAY; msg(lvl != null ? lvl.name() : "DESCEND", 0xff9a3c, 1.4f);
         return true;
     }
+    public void openLevels() {
+        if (state != State.TITLE && state != State.OVER) return;
+        if (state == State.OVER && save.pending != null) return;
+        levelsReturn = state; state = State.LEVELS;
+    }
+    public void closeLevels() { if (state == State.LEVELS) state = levelsReturn; }
     public void togglePause() {
         if (state == State.PLAY) state = State.PAUSED;
         else if (state == State.PAUSED) state = State.PLAY;
@@ -899,15 +1136,19 @@ public final class Game {
             case "foundry" -> { save.scrip = 1500; state = State.TITLE; openFoundry(); }
             case "over" -> { if (save.hand.isEmpty()) { save.hand.add(new Card(15, false)); save.hand.add(new Card(3, true)); } gameOver(false); }
             case "victory" -> state = State.VICTORY;
+            case "levels" -> { state = State.TITLE; openLevels(); }
             default -> {}
         }
     }
     /** Jump straight to wyrm {@code i} in its biome (screenshots and testing). */
     public void debugBossScene(int i) {
         rows.clear(); balls.clear(); loot.clear(); boss = null;
-        R = Math.round(BOSSES.get(i).at() / (float) M_PER_ROW / DROP) * DROP; rigY = -R; firstRock = R + ZONE_OFF; bossIdx = i;
+        if (lvl != null && lvl.boss() == null) { rows.clear(); R = (lvl.goal() / M_PER_ROW / DROP - 1) * DROP; rigY = -R; firstRock = R + ZONE_OFF; ensureRows(); return; }
+        int at = lvl != null && lvl.boss() != null ? lvl.boss().at() : BOSSES.get(i).at();
+        R = Math.round(at / (float) M_PER_ROW / DROP) * DROP; rigY = -R; firstRock = R + ZONE_OFF; bossIdx = lvl != null ? 0 : i;
         ensureRows(); paddleY = rigY - drop; dockNew(new HashMap<>());
         spawnBoss();
+        if (!boss.def.kind().equals("wyrm")) return;
         boss.y = -(R + 10);
         boss.trail.clear();
         for (int k = 0; k < boss.segs.size() * 8 + 10; k++) boss.trail.addLast(new float[]{boss.x - k * 0.06f, -(R + 10) - k * 0.05f});
@@ -954,6 +1195,8 @@ public final class Game {
         updateHazards(dt);
         if (state != State.PLAY) return;
         updatePanels(dt);
+        updateLevelHazards(dt);
+        if (state != State.PLAY) return;
         updateBoss(dt);
         if (state != State.PLAY) return;
 
@@ -966,7 +1209,7 @@ public final class Game {
                 if (b.held && (b.holdT += dt) > holdLimit()) launch();
             } else {
                 b.boost = Math.max(1, b.boost - dt * 0.4f);
-                float sp = curSpeed() * b.boost;
+                float sp = curSpeed() * b.boost * (b.y < waterTop ? 0.62f : 1);   // flooded rows slow the core
                 if (Math.abs(b.vy) < 0.3f * sp) b.vy = (b.vy < 0 ? -1 : 1) * 0.3f * sp;     // never near-horizontal
                 float s = (float) Math.hypot(b.vx, b.vy); if (s == 0) s = 1;
                 b.vx *= sp / s; b.vy *= sp / s;
@@ -1037,7 +1280,8 @@ public final class Game {
         }
         List<Float> threats = new ArrayList<>();
         for (Hazard hz : hazards) if (hz.age > react) threats.add(hz.x);
-        if (boss != null && (boss.phase.equals("tele") || boss.phase.equals("lunge"))) threats.add(boss.phase.equals("tele") ? px : boss.lx);
+        if (boss != null && boss.def.kind().equals("wyrm") && (boss.phase.equals("tele") || boss.phase.equals("lunge"))) threats.add(boss.phase.equals("tele") ? px : boss.lx);
+        if (boss != null) for (Segment sg : boss.segs) if (sg.alive && sg.lunging) threats.add(sg.lx);
         for (float hx : threats) {
             float g = goal != null ? goal : pxTarget, gap = padW / 2 + 0.7f;
             if (Math.abs(g - hx) < gap) goal = hx + (g >= hx ? gap : -gap) * (Math.abs(hx + gap) > HALF - padW / 2 ? -1 : 1);

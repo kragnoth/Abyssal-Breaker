@@ -9,28 +9,36 @@ import net.kragnoth.abyssal.desktop.gl.Texture;
  * Alpha 0 in a block texel marks an ore fleck that glints when light hits it.
  */
 public final class Textures {
-    public static final int S = 16, ATLAS_COLS = 6, ATLAS_ROWS = 3;   // block atlas: type 1..6 across, crack level 0..2 down
+    public static final int S = 16, ATLAS_COLS = Defs.BLOCK_TYPES, ATLAS_ROWS = 3;   // block atlas: type 1..9 across, crack level 0..2 down
     private static final int SEED = 1337;
 
-    public final Texture blocks, metal, girder, hazard, wall, glow, boss;
+    public final Texture metal, girder, hazard, wall, glow, boss;
+    private final java.util.Map<Integer, Texture> atlases = new java.util.HashMap<>();
 
     public Textures() {
-        byte[] atlas = new byte[S * ATLAS_COLS * S * ATLAS_ROWS * 4];
-        int aw = S * ATLAS_COLS;
-        for (int t = 1; t <= 6; t++) for (int cr = 0; cr < 3; cr++) {
-            int[] px = block(t, cr);
-            for (int y = 0; y < S; y++) for (int x = 0; x < S; x++) {
-                int o = ((cr * S + y) * aw + (t - 1) * S + x) * 4, p = (y * S + x) * 4;
-                for (int i = 0; i < 4; i++) atlas[o + i] = (byte) px[p + i];
-            }
-        }
-        blocks = new Texture(aw, S * ATLAS_ROWS, atlas, true, false);
         metal = tex(this::metalPx);
         girder = tex(this::girderPx);
         hazard = tex((x, y) -> ((x + y) >> 2) % 2 == 1 ? new int[]{24, 20, 16} : new int[]{190, 150, 30});
         wall = tex(this::wallPx);
-        boss = new Texture(S, S, toBytes(block(Defs.BASALT, 1)), true, true);
+        boss = new Texture(S, S, toBytes(block(Defs.BASALT, 1, null)), true, true);
         glow = glowTex();
+    }
+
+    /** Block atlas for a level (-1 = Classic), built on first use with that level's palette. */
+    public Texture blocks(int level) {
+        return atlases.computeIfAbsent(level, lv -> {
+            int[][] pal = lv >= 0 ? Defs.LEVELS.get(lv).pal() : null;
+            byte[] atlas = new byte[S * ATLAS_COLS * S * ATLAS_ROWS * 4];
+            int aw = S * ATLAS_COLS;
+            for (int t = 1; t <= ATLAS_COLS; t++) for (int cr = 0; cr < 3; cr++) {
+                int[] px = block(t, cr, pal != null ? pal[t] : null);
+                for (int y = 0; y < S; y++) for (int x = 0; x < S; x++) {
+                    int o = ((cr * S + y) * aw + (t - 1) * S + x) * 4, p = (y * S + x) * 4;
+                    for (int i = 0; i < 4; i++) atlas[o + i] = (byte) px[p + i];
+                }
+            }
+            return new Texture(aw, S * ATLAS_ROWS, atlas, true, false);
+        });
     }
 
     interface Painter { int[] at(int x, int y); }
@@ -65,17 +73,19 @@ public final class Textures {
     }
 
     /** One block texture, RGBA ints. */
-    private static int[] block(int type, int crack) {
+    private static int[] block(int type, int crack, int[] baseOverride) {
         int[] out = new int[S * S * 4];
         boolean[] cm = crack > 0 ? crackMask(crack, type * 13 + crack) : null;
         int ts = type * 1000;
-        int[] base = Defs.BASE[type], ore = Defs.ORE[type];
+        int[] base = baseOverride != null ? baseOverride : Defs.BASE[type], ore = Defs.ORE[type];
         for (int y = 0; y < S; y++) for (int x = 0; x < S; x++) {
             double n = Mth.vnoise(x * 0.45 + ts, y * 0.45, SEED) * 0.6 + Mth.hash(x + ts, y, SEED) * 0.4;
             double k = 1 + (n - 0.5) * Defs.VARIANCE[type] / 40.0;
             double r = base[0] * k, g = base[1] * k, b = base[2] * k; int a = 255;
             if (type == Defs.DIRT && Mth.hash(x * 7 + 3, y * 5, SEED) > 0.9) { r = r * 0.7 + 30; g = g * 0.7 + 26; b = b * 0.7 + 22; }
             if (type == Defs.BASALT && (x + y * 2) % 7 == 0) { r *= 1.35; g *= 1.35; b *= 1.35; }
+            if (type == Defs.TAR && Mth.hash(x * 3, y * 9 + 1, SEED) > 0.93) { r += 40; g += 34; b += 30; }          // wet sheen
+            if (type == Defs.MIRROR && (x - y + 32) % 5 == 0) { r = 235; g = 245; b = 255; }                         // glass streaks
             if (ore != null && Mth.vnoise(x * 0.9 + ts, y * 0.9 + 5, SEED) > 0.7) { r = ore[0] * 0.75; g = ore[1] * 0.75; b = ore[2] * 0.75; a = 0; }
             if (x == 0 || y == 0 || x == S - 1 || y == S - 1) { r *= 0.42; g *= 0.42; b *= 0.42; }
             else if (y == 1 || x == 1) { r *= 1.18; g *= 1.18; b *= 1.18; }

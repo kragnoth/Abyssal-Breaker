@@ -25,7 +25,7 @@ public final class Entities {
         public float x, y, vx, vy, boost = 1, holdX, holdT;
         public boolean docked, held, lost;
         public int pierceLeft, lanceLeft = 10, slam;
-        public float lastSplit = -9;
+        public float lastSplit = -9, stuck;
         public final Map<String, Integer> up = new HashMap<>();
         public float[] col = {1, 0.55f, 0.2f};
         public int up(String k) { return up.getOrDefault(k, 0); }
@@ -55,19 +55,20 @@ public final class Entities {
     }
 
     public static final class Hazard {
-        public float x, warn, age, y, vy;
-        public boolean falling, passed;
+        public float x, warn, age, y, vy, fromY;
+        public boolean falling, passed, rising;
     }
 
     public static final class Segment {
-        public float x, y, hitT;
+        public float x, y, hitT, t0, lx, lungeT;
+        public boolean lunging;
         public int hp, max;
         public boolean alive = true;
     }
 
     public static final class Boss {
         public Defs.BossDef def;
-        public float sc, t, x, y, dir, tele, lungeT, lungeTime, hitT, age, lx, rubbleT = 2;
+        public float sc, t, x, y, dir, tele, lungeT, lungeTime, hitT, age, lx, rubbleT = 2, dropT;
         public int hp, max;
         public String phase = "rise";
         public final List<Segment> segs = new ArrayList<>();
@@ -76,10 +77,15 @@ public final class Entities {
         public int aliveSegs() { int n = 0; for (Segment s : segs) if (s.alive) n++; return n; }
     }
 
+    /** A clerk's ghost (Gatehouse): drifts to a broken cell and rebuilds it unless a core dispels it. */
+    public static final class Ghost { public float x, y, work, alpha; public int tr, tc; }
+    /** A light in the void (Beyond): pulls passing cores off course. */
+    public static final class VoidLight { public float x, y, t0; }
+
     /** Pacing telemetry; the logic sims read these. */
     public static final class Stats {
         public float t, idle, readyWait, lastProg, firstPod = -1, firstDrop = -1;
-        public int blocks, hullHits, chips, stalHits, drops, maxCores = 1, maxStack, laserShots, skimmed, evos, slams, bossKills, shopSeen;
+        public int ghostsDispelled, rings, blocks, hullHits, chips, stalHits, drops, maxCores = 1, maxStack, laserShots, skimmed, evos, slams, bossKills, shopSeen;
         public double ore;
         public final float[] coreT = new float[4];
         public final Map<String, Integer> pods = new HashMap<>();

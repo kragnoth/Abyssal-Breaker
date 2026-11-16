@@ -64,9 +64,10 @@ public final class Screens {
     public void draw(float dt) {
         time += dt; msgT = Math.max(0, msgT - dt);
         live = new ArrayList<>();
-        if (g.state != State.TITLE && g.state != State.FOUNDRY) hud();
+        if (g.state != State.TITLE && g.state != State.FOUNDRY && g.state != State.LEVELS) hud();
         switch (g.state) {
             case TITLE -> title();
+            case LEVELS -> levels();
             case JUNCTION -> junction();
             case SHOP -> shop();
             case FOUNDRY -> foundry();
@@ -81,7 +82,13 @@ public final class Screens {
     // ================================================================ HUD
     private void hud() {
         u.text("DEPTH " + g.depthM() + "m", 10, 8, 24, TXT);
-        u.text(Defs.atmosphereAt(g.depthM()).name(), 10, 34, 13, DIM);
+        u.text(g.atmosphere().name() + (g.lvl != null && g.endless ? " · ENDLESS" : ""), 10, 34, 13, g.lvl != null ? ORANGE : DIM);
+        if (g.lvl != null && g.lvl.hazard() == LevelHazard.NOISE) {
+            float nf = Math.min(1, g.noise / 100f);
+            u.text("NOISE", 10, 78, 12, nf > 0.7f ? RED : 0x40e6d2);
+            u.rect(52, 80, 80, 8, 0x120c08, 1); u.frame(52, 80, 80, 8, 1.5f, BORDER);
+            u.rect(53.5f, 81.5f, 77 * nf, 5, nf > 0.7f ? RED : 0x40e6d2, 1);
+        }
         StringBuilder arc = new StringBuilder();
         for (Card c : g.save.hand) { if (!arc.isEmpty()) arc.append(" · "); arc.append(ARCANA.get(c.n).name().replace("THE ", "")).append(c.rev ? "↓" : ""); }
         if (!arc.isEmpty()) u.text("ARCANA: " + arc, 10, 49, 10, DIM);
@@ -104,7 +111,7 @@ public final class Screens {
         String right;
         int rightCol = DIM;
         if (g.dropping != null) { right = "DESCENDING…"; rightCol = GRN; }
-        else if (g.boss != null) { right = "CLAMPS LOCKED - SLAY THE WYRM"; rightCol = RED; }
+        else if (g.boss != null) { right = "CLAMPS LOCKED - " + (g.boss.def.kind().equals("wyrm") && g.lvl == null ? "SLAY THE WYRM" : "DEFEAT " + g.boss.def.name()); rightCol = RED; }
         else if (g.pressureT >= 0) { right = "CLAMPS READY - RMB / E  auto " + (int) Math.ceil(g.pressureT) + "s"; rightCol = g.pressureT < 6 ? RED : GRN; }
         else right = Math.round(cl * 100) + "%";
         float total = u.width("STRUCTURE ", 14) + 112 + 8 + u.width(right, 14);
@@ -119,7 +126,8 @@ public final class Screens {
             var B = g.boss;
             int segHp = 0, segMax = 0; for (var s : B.segs) { segHp += s.alive ? s.hp : 0; segMax += s.max; }
             float frac = (segHp + Math.max(0, B.hp)) / (float) (segMax + B.max);
-            String note = B.armored() ? B.aliveSegs() + " armor plates" : "HEAD EXPOSED";
+            String part = switch (B.def.kind()) { case "gate" -> " frame stones"; case "bell" -> " supports"; case "foundry" -> " kilns"; case "lodgers" -> " lodgers"; case "copy" -> " mirrors"; default -> " armor plates"; };
+            String note = B.armored() ? B.aliveSegs() + part : switch (B.def.kind()) { case "bell" -> "THE BELL HAS FALLEN"; case "lodgers", "copy" -> "EXPOSED"; default -> "HEAD EXPOSED"; };
             float bw = u.width(B.def.name() + " ", 14) + 162 + u.width(note, 13);
             float bx2 = VW / 2 - bw / 2, by2 = VH - 42;
             bx2 += u.text(B.def.name() + " ", bx2, by2, 14, RED);
@@ -165,8 +173,9 @@ public final class Screens {
         String[] keys = {"MOUSE / A D  move rig      mouse height / W S  lower it on its spring", "CLICK / SPACE  launch core      RIGHT-CLICK / E  release clamps",
                          "C crt/dither · J vertex jitter · M mute · P pause · F11 fullscreen"};
         for (String k : keys) { u.textCentered(k, VW / 2, y, 10, 0xb9a37e); y += 12; }
+        u.textCentered(quote(), VW / 2, py - 18, 11, 0x9a8a6a);
         y += 8;
-        button("DESCEND", VW / 2 - 175, y, 150, 24, 15, ORANGE, true, () -> g.start());
+        button("DESCEND", VW / 2 - 175, y, 150, 24, 15, ORANGE, true, g::openLevels);
         button("FOUNDRY [F] · " + g.save.scrip + " scrip", VW / 2 - 15, y, 190, 24, 13, ORANGE, true, g::openFoundry);
         y += 34;
         if (!g.save.hand.isEmpty()) {
@@ -174,6 +183,45 @@ public final class Screens {
             float cw = 66, cx = VW / 2 - (g.save.hand.size() * (cw + 6) - 6) / 2;
             for (Card c : g.save.hand) { card(c, cx, y, cw, 74, true); cx += cw + 6; }
         }
+    }
+
+    private String quote() { return QUOTES.get((int) (time / 7) % QUOTES.size()); }
+
+    // ================================================================ level select
+    private void levels() {
+        dim();
+        float pw = 620, ph = 432, px = VW / 2 - pw / 2, py = 8;
+        panel(px, py, pw, ph);
+        u.textCentered("CHOOSE A SHAFT", VW / 2, py + 8, 22, 0xffb347);
+        u.textCentered("Follow the Guild's records down. Clearing a level opens the next.", VW / 2, py + 34, 11, DIM);
+        float cw = 148, ch = 158, gx = VW / 2 - (4 * cw + 3 * 6) / 2, gy = py + 50;
+        for (int i = -1; i < LEVELS.size(); i++) {
+            int slot = i < 0 ? 7 : i;
+            float x = gx + (slot % 4) * (cw + 6), y = gy + (slot / 4) * (ch + 6);
+            boolean unlocked = i < 0 || g.levelUnlocked(i), cleared = i >= 0 && g.levelCleared(i);
+            u.rect(x, y, cw, ch, 0x120c08, 1); u.frame(x, y, cw, ch, 1.5f, cleared ? 0x4a6a2c : unlocked ? 0x6b5a44 : 0x2a2018);
+            int tc = unlocked ? 0xffcf8a : 0x5d5040, dc = unlocked ? 0xb9a37e : 0x4a3c2c;
+            final int lv = i;
+            if (i < 0) {
+                u.textCentered("CLASSIC DESCENT", x + cw / 2, y + 8, 12, tc);
+                float ty = para("The original run: four wyrms down to the Eldritch Heart at 360m.", x + 6, y + 28, cw - 12, 10, dc, true);
+                para("Hazard: rockfall past 30k score", x + 6, ty + 6, cw - 12, 9, dc, true);
+                button("DESCEND [C]", x + cw / 2 - 52, y + ch - 28, 104, 20, 11, ORANGE, true, () -> g.start(-1));
+                continue;
+            }
+            LevelDef L = LEVELS.get(i);
+            u.text(String.valueOf(i + 1), x + 6, y + 6, 12, CARD_GOLD);
+            if (cleared) u.textRight("CLEARED", x + cw - 6, y + 6, 10, GRN);
+            float ty = y + 22;
+            for (String line : u.wrap(L.name(), 13, cw - 10)) { u.textCentered(line, x + cw / 2, ty, 13, tc); ty += 14; }
+            ty = para(L.place(), x + 6, ty + 2, cw - 12, 9, dc, true);
+            ty = para("Hazard: " + L.hazardText(), x + 6, ty + 5, cw - 12, 9, unlocked ? 0x9cc6c0 : dc, true);
+            para("Boss: " + L.bossText(), x + 6, ty + 4, cw - 12, 9, unlocked ? 0xd09a8a : dc, true);
+            if (unlocked) button("DESCEND [" + (i + 1) + "]", x + cw / 2 - 52, y + ch - 28, 104, 20, 11, ORANGE, true, () -> g.start(lv));
+            else u.textCentered("LOCKED - clear level " + i + " first", x + cw / 2, y + ch - 24, 9, 0x5d5040);
+        }
+        u.textCentered(quote(), VW / 2, py + ph - 50, 11, 0x9a8a6a);
+        button("BACK [ESC]", VW / 2 - 70, py + ph - 32, 140, 22, 12, ORANGE, true, g::closeLevels);
     }
 
     // ================================================================ junction
@@ -254,7 +302,7 @@ public final class Screens {
         float pw = 560, ph = 420, px = VW / 2 - pw / 2, py = 14;
         panel(px, py, pw, ph);
         boolean win = lr != null && lr.win();
-        u.textCentered(win ? "YOU REACHED THE CORE" : "RIG LOST", VW / 2, py + 8, 24, win ? GRN : RED);
+        u.textCentered(win ? (g.lvl != null ? g.lvl.name() + " CLEARED" : "YOU REACHED THE CORE") : "RIG LOST", VW / 2, py + 8, 24, win ? GRN : RED);
         float y = py + 40;
         if (lr != null) {
             int sec = (int) lr.seconds();
@@ -295,8 +343,9 @@ public final class Screens {
                 for (Card c : g.save.hand) { card(c, cx, y, cw, 150, false); cx += cw + 8; }
                 y += 158;
             }
-            button("DESCEND AGAIN [R]", VW / 2 - 170, py + ph - 52, 165, 24, 13, ORANGE, true, () -> g.start());
-            button("FOUNDRY [F]", VW / 2 + 5, py + ph - 52, 165, 24, 13, ORANGE, true, g::openFoundry);
+            button("AGAIN [R]", VW / 2 - 220, py + ph - 52, 140, 24, 13, ORANGE, true, () -> g.start());
+            button("LEVELS [L]", VW / 2 - 70, py + ph - 52, 140, 24, 13, ORANGE, true, g::openLevels);
+            button("FOUNDRY [F]", VW / 2 + 80, py + ph - 52, 140, 24, 13, ORANGE, true, g::openFoundry);
             u.textCentered("Workshop upgrades die with the rig. Foundry upgrades carry into every future descent.", VW / 2, py + ph - 20, 10, DIM);
         }
     }
@@ -330,9 +379,11 @@ public final class Screens {
         dim();
         float pw = 460, ph = 160, px = VW / 2 - pw / 2, py = VH / 2 - ph / 2;
         panel(px, py, pw, ph);
-        u.textCentered("THE ELDRITCH HEART IS BROKEN", VW / 2, py + 10, 20, GRN);
-        float y = para("You reached the bottom of the shaft. Scrip for this run is multiplied x1.5.", px + 20, py + 40, pw - 40, 12, TXT, true);
-        para("[S] SURFACE - hoist all cargo and end the run as a victory.  [E] ENDLESS - keep descending; wyrms return every 120m, stronger each time.", px + 20, y + 4, pw - 40, 11, TXT, true);
+        boolean lv = g.lvl != null;
+        u.textCentered(lv ? g.lvl.name() + " CLEARED" : "THE ELDRITCH HEART IS BROKEN", VW / 2, py + 10, 20, GRN);
+        String next = lv && g.level + 1 < LEVELS.size() ? " " + LEVELS.get(g.level + 1).name() + " is open." : "";
+        float y = para((lv ? "The Guild's records lead on." + next : "You reached the bottom of the shaft.") + " Scrip for this run is multiplied x1.5.", px + 20, py + 40, pw - 40, 12, TXT, true);
+        para("[S] SURFACE - hoist all cargo and end the run as a victory.  [E] ENDLESS - keep descending; the " + (lv ? "boss returns every 60m" : "wyrms return every 120m") + ", stronger each time.", px + 20, y + 4, pw - 40, 11, TXT, true);
         button("SURFACE [S]", VW / 2 - 160, py + ph - 34, 150, 24, 13, ORANGE, true, () -> g.closeVictory(false));
         button("ENDLESS [E]", VW / 2 + 10, py + ph - 34, 150, 24, 13, ORANGE, true, () -> g.closeVictory(true));
     }
